@@ -137,6 +137,14 @@ R('GET', '/api/catalog', async ({ env }) => {
   if (!books.size) return err('no catalog yet', 404);
   return json({ schema: 1, books: [...books.values()] }, 200, { 'cache-control': 'public, max-age=300' });
 });
+R('GET', '/api/links', async ({ url, env }) => {
+  const work = url.searchParams.get('work'), sec = url.searchParams.get('sec');
+  if (!WORKS[work] || !sec || !/^[0-9A-Za-z.:_-]{1,30}$/.test(sec)) return err('bad ref');
+  const key = work + '/' + sec + '.json'; // links/<book-id>/<sec>.json (dashed book id, unlike sections/)
+  const [a, b] = await Promise.all([env.R2.get('links/' + key), env.R2.get('linksin/' + key)]);
+  const out = { links: a ? (await a.json()).links : [], incoming: b ? (await b.json()).links : [] };
+  return json(out, 200, { 'cache-control': 'public, max-age=300' });
+});
 R('GET', '/api/layouts', async ({ url, env }) => {
   const work = url.searchParams.get('work'); if (!WORKS[work]) return err('bad book');
   const o = await env.R2.get('layouts/' + work + '.json'); if (!o) return json({}, 200, { 'cache-control': 'public, max-age=300' });
