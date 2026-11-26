@@ -1,0 +1,41 @@
+name: Build links
+# Builds connections for one book (Sefaria official links + deterministic string matching + placement validation report)
+# and uploads links/<book>/<sec>.json and reports/links/<book>*.json to R2. Safe to re-run (files are overwritten).
+# Run: Actions tab -> "Build links" -> Run workflow -> choose a book.
+on:
+  workflow_dispatch:
+    inputs:
+      book:
+        description: 'Book id'
+        required: true
+        default: bavli-berakhot
+        type: choice
+        options: [bavli-berakhot, bavli-shabbat, mishnah-berakhot, mishnah-peah, tanakh-genesis, tanakh-exodus]
+
+permissions:
+  contents: read
+
+jobs:
+  links:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.12' }
+      - uses: actions/setup-node@v4
+        with: { node-version: '22' }
+      - run: npm ci
+      - name: Build and upload
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          if [ -z "$CLOUDFLARE_ACCOUNT_ID" ]; then
+            export CLOUDFLARE_ACCOUNT_ID=$(curl -s -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" https://api.cloudflare.com/client/v4/accounts | python3 -c "import json,sys;print(json.load(sys.stdin)['result'][0]['id'])")
+          fi
+          python3 scripts/links/pipeline.py --book "${{ inputs.book }}" --cache cache --out out
+      - name: Summary
+        run: |
+          echo "### Links: ${{ inputs.book }}" >> "$GITHUB_STEP_SUMMARY"
+          cat out/links/${{ inputs.book }}.summary.json >> "$GITHUB_STEP_SUMMARY"
