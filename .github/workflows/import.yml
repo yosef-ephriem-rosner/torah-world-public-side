@@ -30,7 +30,7 @@ jobs:
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-        run: bash scripts/upload_r2.sh out
+        run: python3 scripts/upload_r2.py out --threads 3
       - name: Summary
         run: |
           echo "### Import: ${{ inputs.scope }}" >> "$GITHUB_STEP_SUMMARY"
