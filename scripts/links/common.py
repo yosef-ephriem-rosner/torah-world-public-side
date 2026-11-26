@@ -33,7 +33,9 @@ def links_csv(cache, book):
 def section_key(book, sec): return f"sections/{BOOKS[book]['dir']}/{sec}.json"
 def load_section(cache, book, sec):
     fn = os.path.join(cache, section_key(book, sec))
-    return json.load(open(fn, encoding='utf-8')) if os.path.exists(fn) else None
+    if not os.path.exists(fn): return None
+    try: return json.load(open(fn, encoding='utf-8'))
+    except ValueError: print('warn: unreadable section file', fn, flush=True); return None
 def load_book(cache, book):
     return {s: d for s in BOOKS[book]['secs'] if (d := load_section(cache, book, s))}
 

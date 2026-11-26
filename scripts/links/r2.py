@@ -9,7 +9,8 @@ def get(key, cache='cache'):
     os.makedirs(os.path.dirname(fn), exist_ok=True)
     for _ in range(3):
         r = _run(['get', f'{BUCKET}/{key}', '--remote', '--file', fn])
-        if r.returncode == 0 and os.path.exists(fn): return fn
+        if r.returncode == 0 and os.path.exists(fn) and os.path.getsize(fn): return fn
+        if os.path.exists(fn) and not os.path.getsize(fn): os.remove(fn)
     return None
 def put(key, path, ctype='application/json'):
     for _ in range(3):
