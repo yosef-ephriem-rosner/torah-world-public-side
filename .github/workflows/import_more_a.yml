@@ -1,0 +1,72 @@
+name: Import Yerushalmi + Tosefta to R2
+# Content session A: Jerusalem Talmud + Tosefta from Sefaria's official export (scripts/import_more.py). Re-runnable (files overwritten).
+on:
+  workflow_dispatch:
+    inputs:
+      group:
+        description: 'Which part'
+        required: true
+        default: Yerushalmi
+        type: choice
+        options: [Yerushalmi, Tosefta, all]
+      books:
+        description: 'Optional: only these book ids (JSON list, e.g. ["yerushalmi-peah"]); overrides the group'
+        required: false
+        default: ''
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  plan:
+    runs-on: ubuntu-latest
+    outputs:
+      books: ${{ steps.list.outputs.books }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.12' }
+      - id: list
+        env:
+          BOOKS: ${{ inputs.books }}
+        run: |
+          if [ -n "$BOOKS" ]; then echo "books=$BOOKS" >> "$GITHUB_OUTPUT"
+          else echo "books=$(python3 scripts/import_more.py --list-books '${{ inputs.group }}')" >> "$GITHUB_OUTPUT"; fi
+
+  import:
+    needs: plan
+    runs-on: ubuntu-latest
+    timeout-minutes: 340
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        book: ${{ fromJson(needs.plan.outputs.books) }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.12' }
+      - name: Build section files from the Sefaria export
+        run: python3 scripts/import_more.py --book "${{ matrix.book }}" --out out
+      - name: Upload to R2
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: python3 scripts/upload_r2.py out --threads 2
+
+  catalog:
+    needs: import
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.12' }
+      - name: Write catalog/yerushalmi.json and catalog/tosefta.json from the manifests in R2
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          for c in yerushalmi tosefta; do python3 scripts/import_more.py --build-catalog $c --out cat; done
+          python3 scripts/upload_r2.py cat --threads 1
