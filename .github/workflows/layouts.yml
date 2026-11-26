@@ -1,0 +1,37 @@
+name: Precompute page layouts
+# Calculates the fixed tzuras hadaf layout numbers for one Gemara book (both nikud variants) in a headless browser
+# against the live site, and stores them in R2 (layouts/<book>.json). Run after the book has been imported.
+on:
+  workflow_dispatch:
+    inputs:
+      book:
+        description: 'Book id, e.g. bavli-pesachim'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  layouts:
+    runs-on: ubuntu-latest
+    timeout-minutes: 340
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: '22' }
+      - run: npm install --no-save playwright && npx playwright install --with-deps chromium
+      - name: Calculate layouts
+        env:
+          CI_LAYOUTS: '1'
+        run: node scripts/precompute_layouts.js https://torah-world.yosefrosner39.workers.dev "${{ inputs.book }}"
+      - name: Upload to R2
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          if [ -z "$CLOUDFLARE_ACCOUNT_ID" ]; then
+            export CLOUDFLARE_ACCOUNT_ID=$(curl -s -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" https://api.cloudflare.com/client/v4/accounts | python3 -c "import json,sys;print(json.load(sys.stdin)['result'][0]['id'])")
+          fi
+          npm install --no-save wrangler@4
+          npx wrangler r2 object put "torah-world-data/layouts/${{ inputs.book }}.json" --file "out/layouts/${{ inputs.book }}.json" --content-type "application/json; charset=utf-8" --remote

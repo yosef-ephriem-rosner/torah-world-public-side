@@ -27,12 +27,12 @@ const rng = (a, b) => Array.from({ length: b - a + 1 }, (_, i) => String(a + i))
 const dafs = (first, last) => { const out = []; let n = parseInt(first), side = first.slice(-1); const end = [parseInt(last), last.slice(-1)]; for (;;) { out.push(n + side); if (n === end[0] && side === end[1]) break; if (side === 'a') side = 'b'; else { side = 'a'; n++; } } return out; };
 const chapLabel = s => 'פרק ' + gem(+s), dafLabel = s => 'דף ' + gem(parseInt(s)) + (s.endsWith('a') ? ' ע״א' : ' ע״ב');
 const WORKS = {
-  'tanakh-genesis': { he: 'בראשית (מוישלח ואילך)', en: 'Bereishis, Vayishlach onward', type: 'chumash', secs: rng(32, 50), label: chapLabel, lab2: s => 'Chapter ' + s, num: i => gem(i) },
-  'tanakh-exodus': { he: 'שמות', en: 'Shemos', type: 'chumash', targum: true, secs: rng(1, 40), label: chapLabel, lab2: s => 'Chapter ' + s, num: i => gem(i) },
-  'mishnah-berakhot': { he: 'משנה ברכות', en: 'Mishnah Berakhos', type: 'mishnah', secs: rng(1, 9), label: chapLabel, lab2: s => 'Chapter ' + s, num: i => gem(i) },
-  'mishnah-peah': { he: 'משנה פאה', en: 'Mishnah Peah', type: 'mishnah', secs: rng(1, 8), label: chapLabel, lab2: s => 'Chapter ' + s, num: i => gem(i) },
-  'bavli-berakhot': { he: 'גמרא ברכות', en: 'Gemara Berakhos', type: 'daf', secs: dafs('2a', '64a'), label: dafLabel, lab2: s => 'Daf ' + s, num: i => i },
-  'bavli-shabbat': { he: 'גמרא שבת (פרקים א–ד)', en: 'Gemara Shabbos, chapters 1-4', type: 'daf', secs: dafs('2a', '51b'), label: dafLabel, lab2: s => 'Daf ' + s, num: i => i }
+  'tanakh-genesis': { cat: 'Tanakh', group: 'Torah', order: 0, he: 'בראשית (מוישלח ואילך)', en: 'Bereishis, Vayishlach onward', type: 'chumash', secs: rng(32, 50), label: chapLabel, lab2: s => 'Chapter ' + s, num: i => gem(i) },
+  'tanakh-exodus': { cat: 'Tanakh', group: 'Torah', order: 1, he: 'שמות', en: 'Shemos', type: 'chumash', targum: true, secs: rng(1, 40), label: chapLabel, lab2: s => 'Chapter ' + s, num: i => gem(i) },
+  'mishnah-berakhot': { cat: 'Mishnah', group: 'Seder Zeraim', order: 0, he: 'משנה ברכות', en: 'Mishnah Berakhos', type: 'mishnah', secs: rng(1, 9), label: chapLabel, lab2: s => 'Chapter ' + s, num: i => gem(i) },
+  'mishnah-peah': { cat: 'Mishnah', group: 'Seder Zeraim', order: 1, he: 'משנה פאה', en: 'Mishnah Peah', type: 'mishnah', secs: rng(1, 8), label: chapLabel, lab2: s => 'Chapter ' + s, num: i => gem(i) },
+  'bavli-berakhot': { cat: 'Talmud', group: 'Seder Zeraim', order: 0, he: 'גמרא ברכות', en: 'Gemara Berakhos', type: 'daf', secs: dafs('2a', '64a'), label: dafLabel, lab2: s => 'Daf ' + s, num: i => i },
+  'bavli-shabbat': { cat: 'Talmud', group: 'Seder Moed', order: 1, he: 'גמרא שבת (פרקים א–ד)', en: 'Gemara Shabbos, chapters 1-4', type: 'daf', secs: dafs('2a', '51b'), label: dafLabel, lab2: s => 'Daf ' + s, num: i => i }
 };
 const ALIAS = { shemos: 'tanakh-exodus', mishnah: 'mishnah-berakhot', gemara: 'bavli-berakhot' }; // old links keep working
 const WHO_ORDER = ['Rashi', 'Tosafot', 'Onkelos', 'Ibn Ezra', 'Ramban', 'Rashbam', 'Sforno', 'Or HaChaim', 'Bartenura', 'Rambam', 'Tosafot Yom Tov', 'Ikar Tosafot Yom Tov', 'Rashba', 'Ritva', 'Meiri'];
@@ -117,6 +117,36 @@ function dhBold(html, who) {
   return m[1] + '<b class="dh">' + m[2] + '</b>' + html.slice(m[1].length + m[2].length);
 }
 
+
+// ---------- catalog: the list of books comes from R2 (catalog.json); the six built-in books are the fallback
+const HEGROUP = { Torah: 'תורה', Prophets: 'נביאים', Writings: 'כתובים', 'Seder Zeraim': 'סדר זרעים', 'Seder Moed': 'סדר מועד', 'Seder Nashim': 'סדר נשים', 'Seder Nezikin': 'סדר נזיקין', 'Seder Kodashim': 'סדר קדשים', 'Seder Tahorot': 'סדר טהרות' };
+const CATS = [['Tanakh', 'Tanach · תנ״ך'], ['Mishnah', 'Mishna · משנה'], ['Talmud', 'Gemara · גמרא']];
+async function loadCatalog() {
+  try {
+    const cat = await (await fetch('/api/catalog')).json(); if (!cat.books || !cat.books.length) return;
+    for (const k of Object.keys(WORKS)) delete WORKS[k];
+    for (const b of cat.books) {
+      const daf = b.type === 'daf';
+      WORKS[b.id] = { cat: b.cat, group: b.group, order: b.order, he: (b.cat === 'Talmud' ? 'גמרא ' : '') + b.he, en: (b.cat === 'Talmud' ? 'Gemara ' : '') + b.title, type: b.type, secs: b.secs,
+        label: daf ? dafLabel : chapLabel, lab2: daf ? (s => 'Daf ' + s) : (s => 'Chapter ' + s), num: daf ? (i => i) : (i => gem(i)), targum: b.id === 'tanakh-exodus', commentaries: b.commentaries };
+    }
+  } catch { /* keep the built-in books */ }
+}
+function booksByCat() {
+  const out = {}; for (const [id, w] of Object.entries(WORKS)) { ((out[w.cat] = out[w.cat] || {})[w.group] = out[w.cat][w.group] || []).push([id, w]); }
+  for (const c of Object.values(out)) for (const g of Object.values(c)) g.sort((a, b) => a[1].order - b[1].order);
+  return out;
+}
+function buildMenu() {
+  const bc = booksByCat(), drop = $('.menu .drop'); if (!drop) return;
+  drop.innerHTML = CATS.filter(([c]) => bc[c]).map(([c, title]) => `<div class="col"><b>${title}</b>${Object.entries(bc[c]).map(([g, list]) => `<div class="grp">${HEGROUP[g] || g}</div>${list.map(([id, w]) => `<a href="#/read/${id}/${w.secs[0]}">${esc(w.he.replace(/^גמרא |^משנה /, ''))}</a>`).join('')}`).join('')}</div>`).join('');
+}
+const layoutsLoaded = {};
+async function ensureLayouts(work) {
+  if (layoutsLoaded[work]) return; layoutsLoaded[work] = 1;
+  try { const l = await (await fetch('/api/layouts?work=' + work)).json(); window.DAF_LAYOUTS = Object.assign(window.DAF_LAYOUTS || {}, l); } catch { }
+}
+
 // ---------- router
 const app = $('#app');
 function route() {
@@ -131,9 +161,9 @@ function route() {
 window.addEventListener('hashchange', route);
 $('#sform').onsubmit = e => { e.preventDefault(); const q = $('#sq').value.trim(); if (q) location.hash = '#/search?q=' + encodeURIComponent(q); };
 function home() {
-  const groups = [['Tanach · תנ״ך', ['tanakh-genesis', 'tanakh-exodus']], ['Mishna · משנה', ['mishnah-berakhot', 'mishnah-peah']], ['Gemara · גמרא', ['bavli-berakhot', 'bavli-shabbat']]];
+  const bc = booksByCat();
   app.innerHTML = `<div class="hero"><h1>עולם התורה</h1><p class="mut">Learn the text. Add your notes and questions right on the words. See the mefarshim and links beside it.</p></div>
-  ${groups.map(([title, ids]) => `<h3 style="margin:18px 0 4px">${title}</h3><div class="grid">${ids.map(id => { const w = WORKS[id]; return `<a class="card tile" href="#/read/${id}/${w.secs[0]}"><b>${w.he}</b><div class="mut">${w.en}</div></a>`; }).join('')}</div>`).join('')}
+  ${CATS.filter(([c]) => bc[c]).map(([c, title]) => `<h3 style="margin:18px 0 4px">${title}</h3>${Object.entries(bc[c]).map(([g, list]) => `<div class="mut" style="margin:8px 0 2px;font-size:13px">${HEGROUP[g] || g}</div><div class="chips">${list.map(([id, w]) => `<a class="chip" href="#/read/${id}/${w.secs[0]}">${esc(w.he.replace(/^גמרא |^משנה /, ''))}</a>`).join('')}</div>`).join('')}`).join('')}
   <h3 style="margin:18px 0 4px">חברותא</h3><div class="grid"><a class="card tile" href="#/chavrusa"><b>חברותא</b><div class="mut">Find a learning partner — now or scheduled</div></a></div>
   <div class="card mut" style="font-size:13px"><b>How it works.</b> Click any verse/line to open its mefarshim, cross-references and the community notes. Select words to attach a note or a question to exactly those words. Notes can be private, public, professionals-only, or group-only. Anyone can answer, comment and vote. Every text and commentary shows its source and license under the page.</div>`;
 }
@@ -231,6 +261,7 @@ async function renderDaf(box, nc) {
   box.insertAdjacentHTML('afterbegin', `<div class="mut dafkey" style="text-align:center;font-size:12px">${view === 'page' ? 'צורת הדף' : 'Live layout'} · רש״י (פנים) · תוספות (חוץ) — click any part for notes &amp; the full commentary</div>`);
   const holder = document.createElement('div'); holder.id = 'daf';
   const wrap = document.createElement('div'); wrap.className = 'pagewrap'; wrap.append(holder); box.append(wrap);
+  if (view === 'page') await ensureLayouts(S.work);
   const fixed = view === 'page', avail = box.clientWidth - 12;
   const s = window.__PRECOMPUTE ? 1 : (fixed ? Math.max(PAGE_MIN, Math.min(1.15, avail / PAGE_W)) : 1);
   const width = fixed ? Math.round(PAGE_W * s) : Math.max(520, Math.min(960, box.clientWidth - 30));
@@ -451,4 +482,4 @@ async function mePage() {
 }
 // ---------- init
 applyLang();
-loadMe().then(route);
+loadCatalog().then(() => { buildMenu(); return loadMe(); }).then(route);

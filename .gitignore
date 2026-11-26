@@ -7,3 +7,5 @@ data/sql/
 data/fetch.log
 *.log
 backup*.sql
+out/
+cat/

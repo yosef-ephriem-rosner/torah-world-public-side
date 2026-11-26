@@ -28,7 +28,8 @@ async function login(env, user) {
 }
 const s = (v, n) => String(v ?? '').slice(0, n);
 const int = v => (Number.isFinite(+v) ? Math.trunc(+v) : null);
-const WORKS = { 'tanakh-genesis': 1, 'tanakh-exodus': 1, 'mishnah-berakhot': 1, 'mishnah-peah': 1, 'bavli-berakhot': 1, 'bavli-shabbat': 1 };
+// any book id of the form tanakh-<name> / mishnah-<name> / bavli-<name> is valid (the data itself lives in R2; unknown ids simply 404)
+const WORKS = new Proxy({}, { get: (_, k) => (typeof k === 'string' && /^(tanakh|mishnah|bavli)-[a-z0-9-]{1,40}$/.test(k) ? 1 : undefined) });
 // older D1 tables (cross-reference groups, Onkelos alignment) were keyed by the first three work ids
 const LEGACY = { 'tanakh-exodus': 'shemos', 'mishnah-berakhot': 'mishnah', 'bavli-berakhot': 'gemara' };
 
@@ -117,6 +118,15 @@ R('GET', '/api/section', async ({ url, env }) => {
   const sources = { text: { version: doc.text.version, license: doc.text.license, source: doc.text.source },
     commentary: doc.commentary.map(c => ({ who: c.who, title: c.title, version: c.version, license: c.license, source: c.source })) };
   return json({ segments, comments, xrefs: xr.results.map(r => ({ idx: r.idx, cat: r.cat, items: JSON.parse(r.items) })), noteCounts: nc.results, align: al.results, sources });
+});
+R('GET', '/api/catalog', async ({ env }) => {
+  const o = await env.R2.get('catalog.json'); if (!o) return err('no catalog yet', 404);
+  return new Response(o.body, { headers: { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'public, max-age=300' } });
+});
+R('GET', '/api/layouts', async ({ url, env }) => {
+  const work = url.searchParams.get('work'); if (!WORKS[work]) return err('bad book');
+  const o = await env.R2.get('layouts/' + work + '.json'); if (!o) return err('no layouts', 404);
+  return new Response(o.body, { headers: { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'public, max-age=3600' } });
 });
 R('GET', '/api/search', async ({ url, env, u }) => {
   const q = s(url.searchParams.get('q'), 60).replace(/[֑-ׇ]/g, '').trim();
