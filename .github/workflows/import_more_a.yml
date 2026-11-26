@@ -15,6 +15,10 @@ on:
         default: ''
         type: string
 
+  push:
+    branches: [content-a-work]
+    paths: ['.github/more_a_request.json']
+
 permissions:
   contents: read
 
@@ -31,8 +35,14 @@ jobs:
         env:
           BOOKS: ${{ inputs.books }}
         run: |
+          # workflow_dispatch needs the file on main; until then a push to content-a-work that edits .github/more_a_request.json runs it
+          # ({"books":[...ids]} or {"group":"Yerushalmi|Tosefta|all"})
+          if [ "${{ github.event_name }}" = push ]; then
+            BOOKS=$(python3 -c "import json;print(json.dumps(json.load(open('.github/more_a_request.json')).get('books') or ''))" | sed 's/^""$//')
+            GROUP=$(python3 -c "import json;print(json.load(open('.github/more_a_request.json')).get('group','all'))")
+          else GROUP='${{ inputs.group }}'; fi
           if [ -n "$BOOKS" ]; then echo "books=$BOOKS" >> "$GITHUB_OUTPUT"
-          else echo "books=$(python3 scripts/import_more.py --list-books '${{ inputs.group }}')" >> "$GITHUB_OUTPUT"; fi
+          else echo "books=$(python3 scripts/import_more.py --list-books "$GROUP")" >> "$GITHUB_OUTPUT"; fi
 
   import:
     needs: plan
