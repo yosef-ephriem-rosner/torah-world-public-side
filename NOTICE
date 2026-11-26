@@ -1,0 +1,14 @@
+Third-party components and content used by Torah World
+
+Code license of this repository: PolyForm Noncommercial License 1.0.0 (see LICENSE). Commercial use of this code is not permitted.
+
+1. daf-renderer (public/daf-renderer.js) - MIT License
+   Copyright (c) Dan Jutan, Shaun Regenbaum, GT Jewish DH Lab. https://github.com/TalmudLab/daf-renderer
+   Patched by Torah World to accept stored layout numbers (options.preSpacers). The MIT notice and permission text remain in force for that file.
+   Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files, to deal in the software without restriction, including the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies, subject to the inclusion of the above copyright notice and this permission notice in all copies or substantial portions. THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND.
+
+2. Fonts (public/fonts) - SIL Open Font License 1.1
+   Frank Ruhl Libre (OFL-FrankRuhlLibre.txt) and Noto Rashi Hebrew (OFL-NotoRashiHebrew.txt). The license texts travel with the font files.
+
+3. Texts and commentary - Sefaria (https://www.sefaria.org)
+   Each text keeps its own license, recorded per text (Public Domain, CC0, CC-BY, CC-BY-SA, CC-BY-NC). The site is non-commercial and credits the source and license of each text. Texts are not stored in this repository.

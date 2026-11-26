@@ -1,0 +1,9 @@
+name = "torah-world"
+main = "worker/index.js"
+compatibility_date = "2025-09-01"
+workers_dev = true
+
+[[d1_databases]]
+binding = "DB"
+database_name = "torah-world"
+database_id = "b84cdebc-874f-4fde-8d2b-565a002b903a"

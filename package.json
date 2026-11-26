@@ -1,0 +1,1 @@
+{"name":"torah-world","private":true,"license":"SEE LICENSE IN LICENSE","scripts":{"dev":"wrangler dev --local"},"devDependencies":{"wrangler":"^4"}}

@@ -1,0 +1,9 @@
+node_modules/
+.wrangler/
+.dev.vars
+*.env
+data/raw/
+data/sql/
+data/fetch.log
+*.log
+backup*.sql

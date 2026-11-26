@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en" dir="ltr">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Torah World · עולם התורה</title>
+<link rel="stylesheet" href="/fonts.css">
+<link rel="preload" href="/fonts/frank-ruhl-hebrew-400.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="/fonts/noto-rashi-hebrew-400.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+<header id="top">
+  <a class="brand" href="#/">עולם התורה <small>Torah World</small></a>
+  <nav>
+    <div class="menu"><a href="#/" class="mbtn" data-t="learn">Learn</a>
+      <div class="drop">
+        <div class="col"><b data-t="tanach">Tanach</b><i>חומש</i>
+          <a href="#/read/shemos/1">שמות · Shemos</a></div>
+        <div class="col"><b data-t="mishna">Mishna</b>
+          <a href="#/read/mishnah/1">ברכות · Berakhos</a></div>
+        <div class="col"><b data-t="gemara">Gemara</b>
+          <a href="#/read/gemara/2a">ברכות · Berakhos</a></div>
+      </div></div>
+    <a href="#/chavrusa" data-t="chavrusa">Chavrusa</a>
+    <form id="sform"><input id="sq" placeholder="Search" data-ph="search"><button>⌕</button></form>
+  </nav>
+  <div class="right"><button id="lang" title="Interface language">עב</button><span id="who"></span></div>
+</header>
+<main id="app"></main>
+<footer>Texts &amp; link data from <a href="https://www.sefaria.org" target="_blank" rel="noopener">Sefaria.org</a> — Hebrew text under CC-BY-SA / CC-BY-NC / public domain as marked by each source. Non-commercial. User notes are not rabbinic rulings; "level" labels are self-declared.</footer>
+<div id="modal" hidden></div><div id="toast" hidden></div>
+<script src="/daf-renderer.js"></script>
+<script src="/layouts.js"></script>
+<script src="/app.js"></script>
+</body></html>
