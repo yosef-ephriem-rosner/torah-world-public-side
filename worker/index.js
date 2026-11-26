@@ -80,6 +80,19 @@ async function getSectionDoc(env, work, sec) {
   if (e) { const o = await env.R2.get('packs/' + work + '/' + idx.files[e[0]], { range: { offset: e[1], length: e[2] } }); if (o) return await o.json(); }
   const o = await env.R2.get('sections/' + work.replace('-', '/') + '/' + sec + '.json'); return o ? await o.json() : null;
 }
+
+// ---- links / linksin / placement: packed (linkpacks/<book>/<kind>.index.json + bin files named in the index) or one file per section
+const kindIdx = new Map();
+async function getKindIndex(env, work, kind) {
+  const k = work + '|' + kind, c = kindIdx.get(k); if (c && Date.now() - c.t < 300000) return c.idx;
+  const o = await env.R2.get('linkpacks/' + work + '/' + kind + '.index.json'); const idx = o ? await o.json() : null;
+  kindIdx.set(k, { t: Date.now(), idx }); return idx;
+}
+async function getKindDoc(env, work, kind, sec) {
+  const idx = await getKindIndex(env, work, kind), e = idx && idx.secs && idx.secs[sec];
+  if (e) { const o = await env.R2.get('linkpacks/' + work + '/' + idx.files[e[0]], { range: { offset: e[1], length: e[2] } }); if (o) return await o.json(); }
+  const o = await env.R2.get(kind + '/' + work + '/' + sec + '.json'); return o ? await o.json() : null;
+}
 const routes = [];
 const R = (m, p, f) => routes.push([m, new RegExp('^' + p.replace(/:(\w+)/g, '(?<$1>[^/]+)') + '$'), f]);
 
@@ -115,9 +128,9 @@ R('POST', '/api/me/level', async ({ req, env, u }) => {
 R('GET', '/api/section', async ({ url, env }) => {
   const work = url.searchParams.get('work'), sec = url.searchParams.get('sec');
   if (!WORKS[work] || !sec || !/^[0-9A-Za-z.:_-]{1,30}$/.test(sec)) return err('bad ref');
-  const [doc, pobj] = await Promise.all([getSectionDoc(env, work, sec), env.R2.get('placement/' + work + '/' + sec + '.json')]);
+  const [doc, pobj] = await Promise.all([getSectionDoc(env, work, sec), getKindDoc(env, work, 'placement', sec)]);
   if (!doc) return err('not found', 404);
-  const pl = pobj ? await pobj.json() : null; // corrections for commentaries whose own numbering is not the base-text segment numbering
+  const pl = pobj || null; // corrections for commentaries whose own numbering is not the base-text segment numbering
   const segments = doc.text.segments.map((he, i) => ({ idx: i + 1, he })).filter(s => s.he);
   const comments = [];
   for (const c of doc.commentary) {
@@ -153,9 +166,8 @@ R('GET', '/api/catalog', async ({ env }) => {
 R('GET', '/api/links', async ({ url, env }) => {
   const work = url.searchParams.get('work'), sec = url.searchParams.get('sec');
   if (!WORKS[work] || !sec || !/^[0-9A-Za-z.:_-]{1,30}$/.test(sec)) return err('bad ref');
-  const key = work + '/' + sec + '.json'; // links/<book-id>/<sec>.json (dashed book id, unlike sections/)
-  const [a, b] = await Promise.all([env.R2.get('links/' + key), env.R2.get('linksin/' + key)]);
-  const out = { links: a ? (await a.json()).links : [], incoming: b ? (await b.json()).links : [] };
+  const [a, b] = await Promise.all([getKindDoc(env, work, 'links', sec), getKindDoc(env, work, 'linksin', sec)]);
+  const out = { links: a ? a.links : [], incoming: b ? b.links : [] };
   return json(out, 200, { 'cache-control': 'public, max-age=300' });
 });
 R('GET', '/api/layouts', async ({ url, env }) => {
