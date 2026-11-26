@@ -52,11 +52,15 @@ function renderWho() {
   if (ME) $('#lo').onclick = async () => { await api('/logout', { method: 'POST', body: {} }); ME = null; renderWho(); route(); };
   else $('#li').onclick = () => authModal();
 }
+let modalReturnFocus = null;
 function modal(html, onclose) {
-  const m = $('#modal'); m.innerHTML = '<div class="dlg">' + html + '</div>'; m.hidden = false;
-  m.onmousedown = e => { if (e.target === m) closeModal(); }; m._onclose = onclose; return m.firstElementChild;
+  const m = $('#modal'); modalReturnFocus = document.activeElement; m.innerHTML = '<div class="dlg" role="dialog" aria-modal="true" tabindex="-1">' + html + '</div>'; m.hidden = false;
+  const dlg = m.firstElementChild, hd = $('h2,h3', dlg); if (hd) { hd.id = 'dlgtitle'; dlg.setAttribute('aria-labelledby', 'dlgtitle'); }
+  m.onmousedown = e => { if (e.target === m) closeModal(); }; m._onclose = onclose;
+  setTimeout(() => { const f = $('input,select,textarea,button', dlg); (f || dlg).focus(); }, 30);
+  return dlg;
 }
-function closeModal() { const m = $('#modal'); m.hidden = true; m.innerHTML = ''; }
+function closeModal() { const m = $('#modal'); m.hidden = true; m.innerHTML = ''; if (modalReturnFocus && modalReturnFocus.focus) try { modalReturnFocus.focus(); } catch { } }
 function authModal(msg) {
   return new Promise(res => {
     const d = modal(`<h3>${t('login')} / Register</h3>${msg ? `<p class="err">${esc(msg)}</p>` : ''}
@@ -180,6 +184,35 @@ function renderLinksTab(tb, sel) {
   return true;
 }
 
+
+// ---------- preferences, theme, text flags
+const pref = { get: (k, d) => { try { const v = localStorage.getItem('p:' + k); return v == null ? d : JSON.parse(v); } catch { return d; } }, set: (k, v) => { try { localStorage.setItem('p:' + k, JSON.stringify(v)); } catch { } } };
+$('#theme').onclick = () => { const cur = document.documentElement.dataset.theme || (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'); const nx = cur === 'dark' ? 'light' : 'dark'; document.documentElement.dataset.theme = nx; try { localStorage.theme = nx; } catch { } };
+const NIKUD_RE = /[ְ-ׇֽֿׁׂׅׄ]/g, TAAM_RE = /[֑-֯]/g;
+function flags() { const type = S && S.W ? S.W.type : 'chumash', nk = localStorage.getItem('nikud:' + type) ?? (type === 'daf' ? localStorage.getItem('nikud') : null); return { nikud: nk == null ? type !== 'daf' : nk === '1', taamim: type === 'daf' ? false : pref.get('taamim', true) }; }
+function stripT(s) { const f = flags(); if (!f.nikud) s = s.replace(NIKUD_RE, ''); if (!f.taamim) s = s.replace(TAAM_RE, ''); return s; }
+// every control gets an accessible name (labels without `for`, selects with only a first option, placeholders)
+let lblN = 0;
+function autoLabel() {
+  $$('label:not([for])').forEach(l => { const c = l.nextElementSibling; if (c && /^(INPUT|SELECT|TEXTAREA)$/.test(c.tagName) && !l.querySelector('input,select,textarea')) { if (!c.id) c.id = 'af' + (++lblN); l.setAttribute('for', c.id); } });
+  $$('input,select,textarea').forEach(c => { if (c.type === 'hidden' || c.getAttribute('aria-label') || c.getAttribute('aria-labelledby') || (c.labels && c.labels.length)) return; const n = c.placeholder || (c.tagName === 'SELECT' && c.options[0] ? c.options[0].textContent : '') || c.name || c.dataset.f; if (n) c.setAttribute('aria-label', n); });
+  $$('.scrollable,.pagewrap,.drop,#side').forEach(e => { if (e.scrollWidth > e.clientWidth || e.scrollHeight > e.clientHeight) e.tabIndex = 0; });
+}
+let alq = 0; new MutationObserver(() => { if (!alq) alq = requestAnimationFrame(() => { alq = 0; autoLabel(); }); }).observe(document.body, { childList: true, subtree: true });
+// keyboard: / = search, arrows = next/previous section, Esc = close dialog or side sheet
+document.addEventListener('keydown', e => {
+  const tg = e.target, typing = tg && (/^(INPUT|TEXTAREA|SELECT)$/.test(tg.tagName) || tg.isContentEditable);
+  if (e.key === 'Escape') { if (!$('#modal').hidden) { closeModal(); return; } if (S && S.sel && innerWidth <= 900) { selectSeg(null); return; } }
+  if (typing || e.ctrlKey || e.metaKey || e.altKey) return;
+  if (e.key === '/') { e.preventDefault(); $('#sq').focus(); return; }
+  if (S && S.W && /^#\/read\//.test(location.hash) && $('#next')) {
+    const rtl = document.documentElement.dir === 'rtl', nextKey = rtl ? 'ArrowLeft' : 'ArrowRight', prevKey = rtl ? 'ArrowRight' : 'ArrowLeft';
+    if (e.key === nextKey && !$('#next').disabled) $('#next').click(); else if (e.key === prevKey && !$('#prev').disabled) $('#prev').click();
+  }
+});
+window.addEventListener('scroll', () => { const b = $('#rbar'); if (b) b.classList.toggle('stuck', scrollY > 8); }, { passive: true });
+function pushRecent(work, sec) { const r = pref.get('recent', []).filter(x => x.work !== work); r.unshift({ work, sec, t: Date.now() }); pref.set('recent', r.slice(0, 8)); }
+
 // ---------- router
 const app = $('#app');
 function route() {
@@ -194,11 +227,18 @@ function route() {
 window.addEventListener('hashchange', route);
 $('#sform').onsubmit = e => { e.preventDefault(); const q = $('#sq').value.trim(); if (q) location.hash = '#/search?q=' + encodeURIComponent(q); };
 function home() {
-  const bc = booksByCat();
-  app.innerHTML = `<div class="hero"><h1>עולם התורה</h1><p class="mut">Learn the text. Add your notes and questions right on the words. See the mefarshim and links beside it.</p></div>
-  ${catList().filter(([c]) => bc[c]).map(([c, title]) => `<h3 style="margin:18px 0 4px">${title}</h3>${Object.entries(bc[c]).map(([g, list]) => `<div class="mut" style="margin:8px 0 2px;font-size:13px">${HEGROUP[g] || g}</div><div class="chips">${list.map(([id, w]) => `<a class="chip" href="#/read/${id}/${w.secs[0]}">${esc(w.he.replace(/^גמרא |^משנה /, ''))}</a>`).join('')}</div>`).join('')}`).join('')}
-  <h3 style="margin:18px 0 4px">חברותא</h3><div class="grid"><a class="card tile" href="#/chavrusa"><b>חברותא</b><div class="mut">Find a learning partner — now or scheduled</div></a></div>
-  <div class="card mut" style="font-size:13px"><b>How it works.</b> Click any verse/line to open its mefarshim, cross-references and the community notes. Select words to attach a note or a question to exactly those words. Notes can be private, public, professionals-only, or group-only. Anyone can answer, comment and vote. Every text and commentary shows its source and license under the page.</div>`;
+  document.title = 'Torah World · עולם התורה';
+  const bc = booksByCat(), recent = pref.get('recent', []).filter(r => WORKS[r.work]).slice(0, 6), total = Object.keys(WORKS).length;
+  app.innerHTML = `<div class="hero"><h1>עולם התורה</h1><p class="mut">Learn the text. Add your notes and questions right on the words. See the mefarshim and links beside it.</p>
+    <form class="finder" id="finder" role="search" aria-label="Find a book"><input id="bookq" type="search" placeholder="Find a book… (e.g. Berakhot, תהילים)" aria-label="Find a book" autocomplete="off"><button>Find</button></form>
+    <div class="mut" style="font-size:13px">${total} books · press <kbd>/</kbd> to search the texts</div></div>
+  ${recent.length ? `<section class="recent"><h2>Continue reading</h2><div class="chips">${recent.map(r => `<a class="chip" href="#/read/${r.work}/${r.sec}">${esc(secLabel(r.work, r.sec))}</a>`).join('')}</div></section>` : ''}
+  <div id="cats">${catList().filter(([c]) => bc[c]).map(([c, title], i) => { const n = Object.values(bc[c]).reduce((a, l) => a + l.length, 0); return `<details class="cat" ${i < 3 ? 'open' : ''}><summary>${title} <span class="count">${n} books</span></summary>${Object.entries(bc[c]).map(([g, list]) => `<div class="grpbox"><div class="mut" style="margin:8px 0 4px;font-size:13px">${HEGROUP[g] || g}</div><div class="chips">${list.map(([id, w]) => `<a class="chip" data-q="${esc((w.he + ' ' + w.en).toLowerCase())}" href="#/read/${id}/${w.secs[0]}">${esc(w.he.replace(/^גמרא |^משנה /, ''))}</a>`).join('')}</div></div>`).join('')}</details>`; }).join('')}</div>
+  <h2 style="font-size:18px;margin:18px 0 6px">חברותא</h2><div class="grid"><a class="card tile" href="#/chavrusa"><b>חברותא</b><div class="mut">Find a learning partner — now or scheduled</div></a></div>
+  <details class="card" style="font-size:14px"><summary><b>How it works</b></summary><p>Click any verse or line to open its mefarshim, cross-references and the community notes. Select words to attach a note or a question to exactly those words. Notes can be private, public, professionals-only, or group-only. Anyone can answer, comment and vote. Every text and commentary shows its source and license under the page.</p><p class="mut">Keyboard: <kbd>/</kbd> search · <kbd>←</kbd> <kbd>→</kbd> previous / next section · <kbd>Esc</kbd> close.</p></details>`;
+  const q = $('#bookq'), chips = $$('#cats .chip'), cats = $$('#cats details.cat');
+  q.oninput = () => { const v = q.value.trim().toLowerCase(); chips.forEach(c => c.hidden = !!v && !c.dataset.q.includes(v)); $$('#cats .grpbox').forEach(g => g.hidden = !!v && !$$('.chip:not([hidden])', g).length); cats.forEach(d => { if (v) d.open = true; d.hidden = !!v && !$$('.chip:not([hidden])', d).length; }); };
+  $('#finder').onsubmit = e => { e.preventDefault(); const vis = chips.filter(c => !c.hidden); if (q.value.trim() && vis.length === 1) location.hash = vis[0].getAttribute('href'); else if (q.value.trim() && !vis.length) location.hash = '#/search?q=' + encodeURIComponent(q.value.trim()); else if (vis.length) vis[0].focus(); };
 }
 // ---------- reader
 let S = null; // reader state
@@ -206,28 +246,49 @@ let navId = 0;
 async function readPage(work, sec, sel) {
   const my = ++navId, W = WORKS[work]; if (!W) return home();
   if (!sec || !W.secs.includes(sec)) sec = W.secs[0];
-  app.innerHTML = '<p class="mut">Loading…</p>';
-  let data; try { data = await api(`/section?work=${work}&sec=${encodeURIComponent(sec)}`); } catch (e) { if (my === navId) app.innerHTML = '<p class="err">' + esc(e.message) + '</p>'; return; }
+  app.innerHTML = '<div class="skel" style="width:40%;height:28px"></div><div class="skel"></div><div class="skel"></div><div class="skel" style="width:80%"></div><div class="skel"></div><div class="skel" style="width:60%"></div>';
+  let data; try { data = await api(`/section?work=${work}&sec=${encodeURIComponent(sec)}`); } catch (e) { if (my === navId) app.innerHTML = `<div class="empty"><h1>This section isn't available yet</h1><p>${esc(e.message)}</p><p><a href="#/read/${work}/${W.secs[0]}">Go to the beginning of ${esc(W.he)}</a> · <a href="#/">Home</a></p></div>`; return; }
   if (my !== navId) return;
-  const i = W.secs.indexOf(sec);
+  const i = W.secs.indexOf(sec), type = W.type;
   S = { work, sec, W, data, sel: null, tab: 'commentary', notes: [], layers: { mk: true, hl: true }, links: { links: [], incoming: [] } };
-  fetch(`/api/links?work=${work}&sec=${encodeURIComponent(sec)}`).then(r => r.ok ? r.json() : null).then(j => { if (j && my === navId && S.work === work && S.sec === sec) { S.links = j; if (S.sel && S.tab === 'links') renderSide(); else if (S.sel) renderSide(); } }).catch(() => { });
-  app.innerHTML = `<div class="bar"><h2 class="he">${secLabel(work, sec)}</h2>
-    <button class="ghost sm" id="prev" ${i ? '' : 'disabled'}>◀</button>
-    <select id="secsel">${W.secs.map(s => `<option value="${s}" ${s === sec ? 'selected' : ''}>${W.label(s)} (${W.lab2(s)})</option>`).join('')}</select>
-    <button class="ghost sm" id="next" ${i < W.secs.length - 1 ? '' : 'disabled'}>▶</button>
-    <label><input type="checkbox" id="lmk" checked> markers</label><label><input type="checkbox" id="lhl" checked> highlights</label>
-    <label><input type="checkbox" id="lsb" checked> sidebar</label>${W.targum ? `<label><input type="checkbox" id="ltg" ${localStorage.targum === '1' ? 'checked' : ''}> תרגום אונקלוס</label>` : ''}${W.type === 'daf' ? `<select id="dview"><option value="page" ${dafView() === 'page' ? 'selected' : ''}>צורת הדף · Printed page (fixed)</option><option value="live" ${dafView() === 'live' ? 'selected' : ''}>Adaptive layout (fits window)</option><option value="simple" ${dafView() === 'simple' ? 'selected' : ''}>Simple text (best on phones)</option></select>` : ''}${true ? `<label><input type="checkbox" id="lnk" ${localStorage.nikud === '1' ? 'checked' : ''}> ניקוד</label>` : ''}</div>
-    <div class="reader" id="rd"><div><div class="card" id="text"></div></div><div class="card" id="side"></div></div>`;
-  $('#prev').onclick = () => location.hash = `#/read/${work}/${W.secs[i - 1]}`;
-  $('#next').onclick = () => location.hash = `#/read/${work}/${W.secs[i + 1]}`;
+  document.title = `${W.he} · ${W.label(sec)} — Torah World`; pushRecent(work, sec);
+  fetch(`/api/links?work=${work}&sec=${encodeURIComponent(sec)}`).then(r => r.ok ? r.json() : null).then(j => { if (j && my === navId && S.work === work && S.sec === sec) { S.links = j; if (S.sel) renderSide(); } }).catch(() => { });
+  const catName = (CAT_TITLES[W.cat] || W.cat || '').split(' · ')[0], f = flags();
+  const chk = (id, label, on) => `<label class="chk"><input type="checkbox" id="${id}" ${on ? 'checked' : ''}> ${label}</label>`;
+  app.innerHTML = `<nav class="crumbs" aria-label="Breadcrumb"><a href="#/">Home</a> › <span>${esc(catName)}</span> › <span>${esc(W.group ? (HEGROUP[W.group] || W.group) : '')}</span></nav>
+    <div class="rbar" id="rbar"><h1 class="he">${esc(W.he)} · ${esc(W.label(sec))}</h1>
+      <div class="pager"><button class="ghost icon" id="prev" aria-label="Previous ${type === 'daf' ? 'page' : 'section'} (arrow key)" ${i ? '' : 'disabled'}>◀</button>
+        <select id="secsel" aria-label="Go to ${type === 'daf' ? 'page' : 'chapter'}">${W.secs.map(s => `<option value="${s}" ${s === sec ? 'selected' : ''}>${W.label(s)} (${W.lab2(s)})</option>`).join('')}</select>
+        <button class="ghost icon" id="next" aria-label="Next ${type === 'daf' ? 'page' : 'section'} (arrow key)" ${i < W.secs.length - 1 ? '' : 'disabled'}>▶</button></div>
+      <button class="ghost only-sheet" id="opensb" aria-label="Open commentary and notes panel">☰ Panel</button>
+      <details class="view" id="viewmenu"><summary>⚙ View</summary><div class="viewpanel">
+        ${type === 'daf' ? `<h4>Layout</h4><select id="dview" aria-label="Page layout"><option value="page" ${dafView() === 'page' ? 'selected' : ''}>צורת הדף · Printed page (fixed)</option><option value="live" ${dafView() === 'live' ? 'selected' : ''}>Adaptive layout (fits window)</option><option value="simple" ${dafView() === 'simple' ? 'selected' : ''}>Simple text (best on phones)</option></select>` : ''}
+        <h4>Text</h4>${chk('lnk', 'ניקוד · Nikud (vowels)', f.nikud)}${type === 'chumash' ? chk('ltaam', 'טעמים · Cantillation marks', f.taamim) : ''}${W.targum ? chk('ltg', 'תרגום אונקלוס · Onkelos', localStorage.targum === '1') : ''}
+        <div class="sizer" id="sizer1"><span class="mut" style="font-size:13px;flex:1">Text size</span><button class="ghost sm" id="tdown" aria-label="Smaller text">A−</button><button class="ghost sm" id="tup" aria-label="Larger text">A+</button></div>
+        <div class="sizer"><span class="mut" style="font-size:13px;flex:1">Commentary size</span><button class="ghost sm" id="cdown" aria-label="Smaller commentary text">A−</button><button class="ghost sm" id="cup" aria-label="Larger commentary text">A+</button></div>
+        <h4>Show</h4>${chk('lmk', 'Markers (◆ commentary, ★ notes)', pref.get('mk', true))}${chk('lhl', 'Highlights of notes', pref.get('hl', true))}${chk('lsb', 'Side panel', pref.get('sb', true))}
+      </div></details></div>
+    <div class="reader" id="rd"><div><div class="card" id="text"></div><div class="bottompager"><button class="ghost" id="prev2" ${i ? '' : 'disabled'}>◀ ${W.label(W.secs[i - 1] || sec)}</button><button class="ghost" id="next2" ${i < W.secs.length - 1 ? '' : 'disabled'}>${W.label(W.secs[i + 1] || sec)} ▶</button></div></div>
+      <aside class="card" id="side" aria-label="Commentary, links and notes"></aside></div><div class="backdrop" id="bd" hidden></div>`;
+  const go = k => { if (W.secs[k] != null) location.hash = `#/read/${work}/${W.secs[k]}`; };
+  $('#prev').onclick = $('#prev2').onclick = () => go(i - 1); $('#next').onclick = $('#next2').onclick = () => go(i + 1);
   $('#secsel').onchange = e => location.hash = `#/read/${work}/${e.target.value}`;
-  $('#lmk').onchange = e => $('#text').classList.toggle('hidemk', !e.target.checked);
-  $('#lhl').onchange = e => $('#text').classList.toggle('hidehl', !e.target.checked);
-  $('#lsb').onchange = e => { $('#rd').classList.toggle('nosb', !e.target.checked); if (W.type === 'daf') renderText(); };
-  if ($('#ltg')) $('#ltg').onchange = e => { localStorage.targum = e.target.checked ? '1' : '0'; renderText(); };
-  if ($('#dview')) $('#dview').onchange = e => { localStorage.dafView = e.target.value; renderText().then(paintHighlights); };
-  $('#lnk').onchange = e => { localStorage.nikud = e.target.checked ? '1' : '0'; renderText().then(paintHighlights); };
+  const applyView = () => {
+    const tx = $('#text'); if (!tx) return; tx.classList.toggle('hidemk', !pref.get('mk', true)); tx.classList.toggle('hidehl', !pref.get('hl', true));
+    $('#rd').classList.toggle('nosb', !pref.get('sb', true)); tx.style.setProperty('--ts', pref.get('ts', 1)); $('#side').style.setProperty('--cs', pref.get('cs', 1));
+    const fixedPage = type === 'daf' && dafView() === 'page'; $('#sizer1').style.display = fixedPage ? 'none' : '';
+  };
+  $('#lmk').onchange = e => { pref.set('mk', e.target.checked); applyView(); }; $('#lhl').onchange = e => { pref.set('hl', e.target.checked); applyView(); };
+  $('#lsb').onchange = e => { pref.set('sb', e.target.checked); applyView(); if (type === 'daf') renderText().then(paintHighlights); };
+  const step = (k, d, lo, hi) => { pref.set(k, Math.max(lo, Math.min(hi, +(pref.get(k, 1) + d).toFixed(2)))); applyView(); };
+  $('#tdown').onclick = () => step('ts', -0.1, 0.7, 1.8); $('#tup').onclick = () => step('ts', 0.1, 0.7, 1.8); $('#cdown').onclick = () => step('cs', -0.1, 0.7, 1.8); $('#cup').onclick = () => step('cs', 0.1, 0.7, 1.8);
+  if ($('#ltg')) $('#ltg').onchange = e => { localStorage.targum = e.target.checked ? '1' : '0'; renderText().then(paintHighlights); };
+  if ($('#ltaam')) $('#ltaam').onchange = e => { pref.set('taamim', e.target.checked); renderText().then(paintHighlights); };
+  if ($('#dview')) $('#dview').onchange = e => { localStorage.dafView = e.target.value; applyView(); renderText().then(paintHighlights); };
+  $('#lnk').onchange = e => { localStorage.setItem('nikud:' + type, e.target.checked ? '1' : '0'); renderText().then(paintHighlights); };
+  $('#opensb').onclick = () => { $('#side').classList.add('open'); $('#bd').hidden = false; };
+  $('#bd').onclick = () => { if (S.sel) selectSeg(null); $('#side').classList.remove('open'); $('#bd').hidden = true; };
+  applyView();
   await renderText();
   if (my !== navId) return;
   if (data.sources) {
@@ -252,7 +313,7 @@ async function renderText() {
   if (S.W.type === 'daf' && dafView() === 'simple') renderSimple(box, nc);
   else if (S.W.type === 'daf') await renderDaf(box, nc);
   else if (S.W.type === 'chumash') renderChumash(box, nc);
-  else box.innerHTML = S.data.segments.map(sg => `<p class="mish">${segHTML(sg, '', nc, `<b class="mnum">${gem(sg.idx)}.</b> `)}</p>`).join('');
+  else box.innerHTML = S.data.segments.map(sg => `<p class="mish">${segHTML({ idx: sg.idx, he: stripT(sg.he) }, '', nc, `<b class="mnum">${gem(sg.idx)}.</b> `)}</p>`).join('');
   box.onmouseup = onSelect;
   box.onclick = e => {
     if (getSelection().toString().trim()) return;
@@ -269,8 +330,8 @@ function renderChumash(box, nc) {
   const on = {}; data.comments.filter(c => c.who === 'Onkelos').forEach(c => on[c.idx] = (on[c.idx] ? on[c.idx] + ' ' : '') + c.he);
   let html = '<div class="flow">';
   for (const sg of data.segments) {
-    if (!tg) { html += segHTML(sg, W.num(sg.idx), nc); continue; }
-    const pairs = al[sg.idx] || [[sg.he, on[sg.idx] || '']];
+    if (!tg) { html += segHTML({ idx: sg.idx, he: stripT(sg.he) }, W.num(sg.idx), nc); continue; }
+    const pairs = (al[sg.idx] || [[sg.he, on[sg.idx] || '']]).map(([he, ar]) => [stripT(he), stripT(ar)]);
     let n = 0, inner = '';
     for (const [he, ar] of pairs) { const w = wrapWords(he, n); n = w.next; inner += `<span class="pair"><span class="phe">${w.html}</span><span class="par">${ar}</span></span> `; }
     html += `<span class="sg" data-idx="${sg.idx}"><sup class="vn">${W.num(sg.idx)}</sup>${inner}${star(nc, sg.idx)}</span> `;
@@ -282,14 +343,14 @@ const PAGE_W = 1000; // design width of the tzuras hadaf; layout numbers are sto
 const PAGE_MIN = 0.62; // below this the page scrolls sideways instead of shrinking further
 const NIK = /[֑-ׇ]/g;
 function renderSimple(box, nc) {
-  const nikud = localStorage.nikud === '1', strip = s => nikud ? s : s.replace(NIK, '');
+  const nikud = flags().nikud, strip = stripT;
   box.innerHTML = '<div class="mut dafkey" style="text-align:center;font-size:12px">Simple text · tap a line for Rashi, Tosafot and the other mefarshim</div><div class="flow simple">' + S.data.segments.map(sg => segHTML({ idx: sg.idx, he: strip(sg.he) }, S.W.num(sg.idx), nc)).join('') + '</div>';
   window.__dafDone = { work: S.work, sec: S.sec, nikud, view: 'simple', stored: false, scale: 1, spacers: null, height: 0 };
 }
 async function renderDaf(box, nc) {
   const { data, sec } = S, amud = sec.endsWith('a') ? 'a' : 'b';
-  const nikud = localStorage.nikud === '1', view = dafView() === 'live' ? 'live' : 'page';
-  const strip = s => nikud ? s : s.replace(NIK, '');
+  const nikud = flags().nikud, view = dafView() === 'live' ? 'live' : 'page';
+  const strip = stripT;
   const main = data.segments.map(sg => segHTML({ idx: sg.idx, he: strip(sg.he) }, '', nc)).join('');
   const side = who => data.comments.filter(c => c.who === who).map(c => `<span class="cs" data-idx="${c.idx}" data-who="${who}">${dhBold(strip(c.he), who)}</span>`).join(' ');
   box.insertAdjacentHTML('afterbegin', `<div class="mut dafkey" style="text-align:center;font-size:12px">${view === 'page' ? 'צורת הדף' : 'Live layout'} · רש״י (פנים) · תוספות (חוץ) — click any part for notes &amp; the full commentary</div>`);
@@ -354,6 +415,7 @@ function selectSeg(idx, tab, who) {
   if (idx) { const r = $(`.sg[data-idx="${idx}"]`); if (r && !tab) r.scrollIntoView({ block: 'nearest' }); }
   history.replaceState(null, '', `#/read/${S.work}/${S.sec}${idx ? '/' + idx : ''}`);
   renderSide();
+  if (innerWidth <= 900 && $('#side')) { $('#side').classList.toggle('open', !!idx); const bd = $('#bd'); if (bd) bd.hidden = !idx; }
 }
 function linkCount(sel, xr) {
   const L = S.links || { links: [], incoming: [] }, noise = l => { const s = (l.to && l.to.sefaria) || (l.from && l.from.sefaria) || ''; return /Dictionary|Jastrow|Footnotes to the English|Lexicon|Klein Dictionary/i.test(s); }, okc = l => (l.confidence ?? 1) >= 0.6 && !noise(l);
@@ -362,19 +424,22 @@ function linkCount(sel, xr) {
 }
 function renderSide() {
   const { data, sel, W } = S, side = $('#side');
+  const hidden = new Set(pref.get('hiddenWho', []));
+  const whoBlock = (who, list, open) => { const d = h(`<details class="cm" ${open ? 'open' : ''}><summary>${esc(HEWHO[who] || who)} <span class="mut">${esc(who)} · ${list.length}</span></summary></details>`); list.forEach(c => { const x = document.createElement('div'); x.className = 'cmt'; x.innerHTML = dhBold(c.he, who); d.append(x); }); return d; };
   if (!sel) {
-    side.innerHTML = `<p class="mut">Click a ${t('seg').toLowerCase()} to see its commentary and links. Select words to attach a note to them.</p><div id="pgc"></div><h4>${t('notes')} — ${W.label(S.sec)}</h4><div id="nb"></div>`;
+    side.innerHTML = `<div class="inner"><p class="mut">Click a ${t('seg').toLowerCase()} to see its commentary and links. Select words to attach a note to them.</p><div id="pgc"></div><h2 style="font-size:17px">${t('notes')} — ${W.label(S.sec)}</h2><div id="nb"></div></div>`;
     const pg = data.comments.filter(c => c.idx === 0);
     if (pg.length) {
       const by = {}; pg.forEach(c => (by[c.who] = by[c.who] || []).push(c));
-      const box = $('#pgc', side); box.innerHTML = '<h4 style="margin:6px 0">Commentary on the whole page</h4><p class="mut" style="font-size:12px">These mefarshim are organized by their own sections, so they are not tied to a single line here.</p>';
-      Object.keys(by).sort(whoSort).forEach(who => { const d = h(`<details class="cm"><summary>${esc(HEWHO[who] || who)} <span class="mut">${esc(who)} · ${by[who].length}</span></summary></details>`); by[who].forEach(c => { const x = document.createElement('div'); x.className = 'cmt'; x.innerHTML = dhBold(c.he, who); d.append(x); }); box.append(d); });
+      const box = $('#pgc', side); box.innerHTML = '<h2 style="margin:6px 0;font-size:17px">Commentary on the whole page</h2><p class="mut" style="font-size:12px">These mefarshim are organized by their own sections, so they are not tied to a single line here.</p>';
+      Object.keys(by).sort(whoSort).forEach(who => box.append(whoBlock(who, by[who], false)));
     }
     notesBrowser($('#nb', side), { scope: 'page' }); return;
   }
   const cm = data.comments.filter(c => c.idx === sel), xr = data.xrefs.filter(x => x.idx === sel);
-  side.innerHTML = `<div class="bar"><b class="he">${secLabel(S.work, S.sec)} · ${W.num(sel)}</b><button class="ghost sm" id="clr">✕</button></div>
-  <div class="tabs"><button data-tab="commentary" class="${S.tab === 'commentary' ? 'on' : ''}">${t('commentary')} (${cm.length})</button><button data-tab="links" class="${S.tab === 'links' ? 'on' : ''}">${t('links')} (${linkCount(sel, xr)})</button><button data-tab="notes" class="${S.tab === 'notes' ? 'on' : ''}">${t('notes')}</button></div><div id="tb"></div>`;
+  const tabBtn = (k, label) => `<button role="tab" aria-selected="${S.tab === k}" data-tab="${k}" class="${S.tab === k ? 'on' : ''}">${label}</button>`;
+  side.innerHTML = `<div class="sidehead"><div class="bar"><b class="he">${esc(secLabel(S.work, S.sec))} · ${W.num(sel)}</b><button class="ghost sm" id="clr" aria-label="Close panel">✕</button></div>
+    <div class="tabs" role="tablist">${tabBtn('commentary', `${t('commentary')} (${cm.length})`)}${tabBtn('links', `${t('links')} (${linkCount(sel, xr)})`)}${tabBtn('notes', t('notes'))}</div></div><div class="inner" id="tb" role="tabpanel"></div>`;
   $('#clr', side).onclick = () => selectSeg(null);
   $$('.tabs button', side).forEach(b => b.onclick = () => { S.tab = b.dataset.tab; renderSide(); });
   const tb = $('#tb', side);
@@ -382,10 +447,17 @@ function renderSide() {
     if (!cm.length) tb.innerHTML = '<p class="mut">No imported commentary on this segment.</p>';
     const by = {}; cm.forEach(c => (by[c.who] = by[c.who] || []).push(c));
     const whos = Object.keys(by).sort(whoSort);
-    for (const who of whos) {
-      const d = h(`<details class="cm" ${(S.openWho ? who === S.openWho : who === whos[0]) ? 'open' : ''}><summary>${esc(HEWHO[who] || who)} <span class="mut">${esc(who)} · ${by[who].length}</span></summary></details>`);
-      by[who].forEach(c => { const x = document.createElement('div'); x.className = 'cmt'; x.innerHTML = dhBold(c.he, who); d.append(x); }); tb.append(d);
+    if (whos.length > 3) {
+      const chips = h(`<div class="who-chips" role="group" aria-label="Choose which mefarshim to show">${whos.map(w => `<button class="ghost" data-w="${esc(w)}" aria-pressed="${!hidden.has(w)}" title="Show or hide ${esc(w)}">${esc(HEWHO[w] || w)}</button>`).join('')}</div>`);
+      chips.onclick = e => { const b = e.target.closest('[data-w]'); if (!b) return; const w = b.dataset.w, hs = new Set(pref.get('hiddenWho', [])); hs.has(w) ? hs.delete(w) : hs.add(w); pref.set('hiddenWho', [...hs]); renderSide(); };
+      tb.append(chips);
+      const tools = h('<div class="sidetools"><button class="ghost sm" id="expall">Expand all</button><button class="ghost sm" id="colall">Collapse all</button><button class="ghost sm" id="showall">Show all mefarshim</button></div>');
+      tb.append(tools); $('#expall', tools).onclick = () => $$('details.cm', tb).forEach(d => d.open = true); $('#colall', tools).onclick = () => $$('details.cm', tb).forEach(d => d.open = false);
+      $('#showall', tools).onclick = () => { pref.set('hiddenWho', []); renderSide(); };
     }
+    const shown = whos.filter(w => !hidden.has(w));
+    shown.forEach((who, k) => tb.append(whoBlock(who, by[who], S.openWho ? who === S.openWho : k === 0)));
+    if (whos.length && !shown.length) tb.insertAdjacentHTML('beforeend', '<p class="mut">All mefarshim are hidden. Use "Show all mefarshim".</p>');
   } else if (S.tab === 'links') {
     if (renderLinksTab(tb, sel)) { /* new connections shown */ } else if (!xr.length) tb.innerHTML = '<p class="mut">No cross-reference links for this segment yet. Links for the newer books (everything except Shemos, Mishnah Berakhos and Gemara Berakhos) are still being imported and checked.</p>';
     if (xr.length) tb.insertAdjacentHTML('beforeend', '<p class="mut" style="font-size:12px">Imported from the Sefaria link graph. Opens the source on Sefaria.</p>');
@@ -402,15 +474,15 @@ function renderSide() {
 async function notesBrowser(root, init) {
   const f = { scope: init.scope || 'verse', author: '', level: '', kind: '', answered: '', tag: '', q: '', sort: 'votes', mine: '' };
   let facets = { authors: [], levels: [], tags: [] }; try { facets = await api('/facets'); } catch { }
-  root.innerHTML = `<div class="filters">
-   <select data-f="scope"><option value="verse">This ${S.sel ? 'segment' : 'page'}</option><option value="page">This page</option><option value="work">Whole work</option></select>
-   <select data-f="kind"><option value="">All types</option><option value="note">Notes</option><option value="question">Questions</option></select>
-   <select data-f="answered"><option value="">Any answer state</option><option value="0">Unanswered</option><option value="1">Answered</option></select>
-   <select data-f="level"><option value="">Any level</option>${facets.levels.map(l => `<option value="${l.level}">${esc(LEVELS[l.level] || l.level)} (${l.c})</option>`).join('')}</select>
-   <select data-f="author"><option value="">Any author</option>${facets.authors.map(a => `<option>${esc(a.name)}</option>`).join('')}</select>
-   <select data-f="tag"><option value="">Any topic</option>${facets.tags.map(a => `<option>${esc(a.tag)}</option>`).join('')}</select>
-   <select data-f="sort"><option value="votes">Top voted</option><option value="new">Newest</option><option value="long">Longest</option><option value="idx">By position</option></select>
-   <input data-f="q" placeholder="search notes"><label style="font-size:13px"><input type="checkbox" data-f="mine"> mine</label></div><div class="nl"></div>`;
+  root.innerHTML = `<div class="filters"><input data-f="q" type="search" placeholder="Search these notes" aria-label="Search these notes"><select data-f="sort" aria-label="Sort notes"><option value="votes">Top voted</option><option value="new">Newest</option><option value="long">Longest</option><option value="idx">By position</option></select></div>
+   <details class="fl"><summary>Filters</summary><div class="filters">
+   <select data-f="scope" aria-label="Where"><option value="verse">This ${S.sel ? 'segment' : 'page'}</option><option value="page">This page</option><option value="work">Whole book</option></select>
+   <select data-f="kind" aria-label="Type"><option value="">All types</option><option value="note">Notes</option><option value="question">Questions</option></select>
+   <select data-f="answered" aria-label="Answer state"><option value="">Any answer state</option><option value="0">Unanswered</option><option value="1">Answered</option></select>
+   <select data-f="level" aria-label="Author level"><option value="">Any level</option>${facets.levels.map(l => `<option value="${l.level}">${esc(LEVELS[l.level] || l.level)} (${l.c})</option>`).join('')}</select>
+   <select data-f="author" aria-label="Author"><option value="">Any author</option>${facets.authors.map(a => `<option>${esc(a.name)}</option>`).join('')}</select>
+   <select data-f="tag" aria-label="Topic"><option value="">Any topic</option>${facets.tags.map(a => `<option>${esc(a.tag)}</option>`).join('')}</select>
+   <label class="chk"><input type="checkbox" data-f="mine"> Only my notes</label></div></details><div class="nl" aria-live="polite"></div>`;
   if (init.scope === 'page' && !S.sel) $('[data-f=scope]', root).value = 'page'; else if (S.sel) $('[data-f=scope]', root).value = 'verse';
   const load = async () => {
     $$('[data-f]', root).forEach(e => f[e.dataset.f] = e.type === 'checkbox' ? (e.checked ? '1' : '') : e.value);
@@ -486,19 +558,19 @@ async function noteModal(a) {
 }
 // ---------- search
 async function searchPage(q) {
-  $('#sq').value = q; app.innerHTML = `<h2>Search: ${esc(q)}</h2><p class="mut">…</p>`;
+  $('#sq').value = q; app.innerHTML = `<h1 style="font-size:28px">Search: ${esc(q)}</h1><p class="mut">…</p>`;
   try {
     const r = await api('/search?q=' + encodeURIComponent(q));
-    app.innerHTML = `<h2>Search: ${esc(q)}</h2><p class="mut" style="font-size:13px">Text search currently covers Shemos, Mishnah Berakhos and Gemara Berakhos; notes are searched in every book. A search index for all books is coming.</p><h3>Text (${r.text.length})</h3>` + (r.text.map(x => `<div class="card"><a href="#/read/${ALIAS[x.work] || x.work}/${x.sec}/${x.idx}">${esc(secLabel(x.work, x.sec))} · ${x.idx}</a><div class="he">${x.he.replace(/<[^>]+>/g, '')}</div></div>`).join('') || '<p class="mut">No matches in the text.</p>')
-      + `<h3>Notes (${r.notes.length})</h3>` + (r.notes.map(n => `<div class="card"><a href="#/read/${ALIAS[n.work] || n.work}/${n.sec}/${n.idx}">${esc(secLabel(n.work, n.sec))} · ${n.idx}</a> <span class="mut">${esc(n.author)} · ${esc(LEVELS[n.level] || n.level)}</span><div><b>${esc(n.title || '')}</b></div><div class="body-t">${esc(n.body.slice(0, 300))}</div></div>`).join('') || '<p class="mut">No matching notes.</p>');
+    app.innerHTML = `<h1 style="font-size:28px">Search: ${esc(q)}</h1><p class="mut" style="font-size:13px">Text search currently covers Shemos, Mishnah Berakhos and Gemara Berakhos; notes are searched in every book. A search index for all books is coming.</p><h2 style="font-size:20px">Text (${r.text.length})</h2>` + (r.text.map(x => `<div class="card"><a href="#/read/${ALIAS[x.work] || x.work}/${x.sec}/${x.idx}">${esc(secLabel(x.work, x.sec))} · ${x.idx}</a><div class="he">${x.he.replace(/<[^>]+>/g, '')}</div></div>`).join('') || '<p class="mut">No matches in the text.</p>')
+      + `<h2 style="font-size:20px">Notes (${r.notes.length})</h2>` + (r.notes.map(n => `<div class="card"><a href="#/read/${ALIAS[n.work] || n.work}/${n.sec}/${n.idx}">${esc(secLabel(n.work, n.sec))} · ${n.idx}</a> <span class="mut">${esc(n.author)} · ${esc(LEVELS[n.level] || n.level)}</span><div><b>${esc(n.title || '')}</b></div><div class="body-t">${esc(n.body.slice(0, 300))}</div></div>`).join('') || '<p class="mut">No matching notes.</p>');
   } catch (e) { app.innerHTML = '<p class="err">' + esc(e.message) + '</p>'; }
 }
 // ---------- chavrusa
 async function chavrusaPage() {
-  app.innerHTML = `<h2>חברותא · Chavrusa board</h2><div class="card"><b>Looking for a chavrusa?</b>
+  app.innerHTML = `<h1 style="font-size:28px">חברותא · Chavrusa board</h1><div class="card"><b>Looking for a chavrusa?</b>
    <div class="row"><label>What</label><input id="ct" placeholder="e.g. Gemara Berakhos 2a, iyun" maxlength="100"></div>
    <div class="row"><label>Text</label><input id="cr" placeholder="optional: Berakhot 2a" maxlength="100"></div>
-   <div class="row"><label>When</label><input id="cw" placeholder="Now / Sun–Thu 20:00–21:30" maxlength="100"><input id="ctz" value="${Intl.DateTimeFormat().resolvedOptions().timeZone}" style="max-width:190px"></div>
+   <div class="row"><label>When</label><input id="cw" placeholder="Now / Sun–Thu 20:00–21:30" maxlength="100"><input id="ctz" aria-label="Time zone" value="${Intl.DateTimeFormat().resolvedOptions().timeZone}" style="max-width:190px"></div>
    <div class="row"><label>Language</label><select id="cl"><option>Hebrew</option><option>English</option><option>Yiddish</option></select><label>Wants</label><select id="cv"><option value="">any level</option>${Object.entries(LEVELS).map(([k, v]) => `<option value="${k}">${v}</option>`).join('')}</select></div>
    <div class="row"><label>Details</label><input id="cd" placeholder="pace, style (iyun / bekius), notes" maxlength="500"></div><div class="row"><button id="cp">Post request</button><span class="mut" style="font-size:12px">A video room link (Jitsi) is created automatically.</span></div></div>
    <div class="row"><input id="cf" placeholder="filter by topic/text"><button class="ghost" id="cfb">Filter</button></div><div id="cl2"></div><div id="inb"></div>`;
@@ -519,7 +591,7 @@ async function chavrusaPage() {
 async function mePage() {
   if (!await needLogin()) return home();
   const { groups } = await api('/groups');
-  app.innerHTML = `<h2>${esc(ME.name)}</h2><div class="card"><div class="row"><label>My level</label><select id="ml">${Object.entries(LEVELS).map(([k, v]) => `<option value="${k}" ${k === ME.level ? 'selected' : ''}>${v}</option>`).join('')}</select></div><p class="mut" style="font-size:12px">Self-declared. Older notes keep the level they were posted with.</p></div>
+  app.innerHTML = `<h1 style="font-size:28px">${esc(ME.name)}</h1><div class="card"><div class="row"><label>My level</label><select id="ml">${Object.entries(LEVELS).map(([k, v]) => `<option value="${k}" ${k === ME.level ? 'selected' : ''}>${v}</option>`).join('')}</select></div><p class="mut" style="font-size:12px">Self-declared. Older notes keep the level they were posted with.</p></div>
   <div class="card"><b>Groups</b> (for group-only notes)${groups.map(g => `<div>${esc(g.name)} — invite code: <code>${esc(g.code)}</code></div>`).join('') || '<p class="mut">None yet.</p>'}
   <div class="row"><input id="gn" placeholder="new group name"><button id="gc">Create</button></div><div class="row"><input id="gj" placeholder="invite code"><button id="gjb">Join</button></div></div>
   <div class="card"><b>My notes</b><div id="mn"></div></div>`;

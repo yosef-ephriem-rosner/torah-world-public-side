@@ -139,7 +139,7 @@ R('GET', '/api/catalog', async ({ env }) => {
 });
 R('GET', '/api/layouts', async ({ url, env }) => {
   const work = url.searchParams.get('work'); if (!WORKS[work]) return err('bad book');
-  const o = await env.R2.get('layouts/' + work + '.json'); if (!o) return err('no layouts', 404);
+  const o = await env.R2.get('layouts/' + work + '.json'); if (!o) return json({}, 200, { 'cache-control': 'public, max-age=300' });
   return new Response(o.body, { headers: { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'public, max-age=3600' } });
 });
 R('GET', '/api/search', async ({ url, env, u }) => {

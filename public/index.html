@@ -2,36 +2,30 @@
 <html lang="en" dir="ltr">
 <head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="color-scheme" content="light dark">
 <title>Torah World · עולם התורה</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%231f4e79'/%3E%3Ctext x='32' y='45' font-size='40' text-anchor='middle' fill='white' font-family='serif'%3E%D7%AA%3C/text%3E%3C/svg%3E">
 <link rel="stylesheet" href="/fonts.css">
 <link rel="preload" href="/fonts/frank-ruhl-hebrew-400.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="/fonts/noto-rashi-hebrew-400.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="stylesheet" href="/styles.css">
+<script>try{var __th=localStorage.theme;if(__th)document.documentElement.dataset.theme=__th}catch(e){}</script>
 </head>
 <body>
+<a class="skip" href="#app" data-t="skip">Skip to content</a>
 <header id="top">
   <a class="brand" href="#/">עולם התורה <small>Torah World</small></a>
-  <nav>
-    <div class="menu"><a href="#/" class="mbtn" data-t="learn">Learn</a>
-      <div class="drop">
-        <div class="col"><b data-t="tanach">Tanach</b>
-          <a href="#/read/tanakh-genesis/32">בראשית (מוישלח ואילך)</a>
-          <a href="#/read/tanakh-exodus/1">שמות</a></div>
-        <div class="col"><b data-t="mishna">Mishna</b>
-          <a href="#/read/mishnah-berakhot/1">ברכות</a>
-          <a href="#/read/mishnah-peah/1">פאה</a></div>
-        <div class="col"><b data-t="gemara">Gemara</b>
-          <a href="#/read/bavli-berakhot/2a">ברכות</a>
-          <a href="#/read/bavli-shabbat/2a">שבת (פרקים א–ד)</a></div>
-      </div></div>
+  <nav aria-label="Main">
+    <div class="menu"><a href="#/" class="mbtn" aria-haspopup="true" data-t="learn">Learn</a>
+      <div class="drop"></div></div>
     <a href="#/chavrusa" data-t="chavrusa">Chavrusa</a>
-    <form id="sform"><input id="sq" placeholder="Search" data-ph="search"><button>⌕</button></form>
+    <form id="sform" role="search" aria-label="Search the texts"><input id="sq" type="search" aria-label="Search" placeholder="Search" data-ph="search"><button aria-label="Search" title="Search">⌕</button></form>
   </nav>
-  <div class="right"><button id="lang" title="Interface language">עב</button><span id="who"></span></div>
+  <div class="right"><button id="theme" class="ghost icon" aria-label="Toggle dark mode" title="Dark / light"><svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="2"/><path d="M12 3a9 9 0 0 0 0 18z" fill="currentColor"/></svg></button><button id="lang" class="ghost icon" title="Interface language" aria-label="עב – interface language (English / Hebrew)">עב</button><span id="who"></span></div>
 </header>
-<main id="app"></main>
+<main id="app" tabindex="-1"></main>
 <footer>Texts &amp; link data from <a href="https://www.sefaria.org" target="_blank" rel="noopener">Sefaria.org</a> — Hebrew text under CC-BY-SA / CC-BY-NC / public domain as marked by each source. Non-commercial. User notes are not rabbinic rulings; "level" labels are self-declared.</footer>
-<div id="modal" hidden></div><div id="toast" hidden></div>
+<div id="modal" hidden></div><div id="toast" hidden role="status" aria-live="polite"></div>
 <script src="/daf-renderer.js"></script>
 <script src="/layouts.js"></script>
 <script src="/app.js"></script>
