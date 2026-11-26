@@ -1,0 +1,43 @@
+name: Import texts to R2
+# Builds per-section JSON (text + all licensed mefarshim) from Sefaria's official export and uploads it to the R2 bucket.
+# Run it by hand: Actions tab -> "Import texts to R2" -> Run workflow -> choose a scope. Safe to re-run (files are overwritten).
+on:
+  workflow_dispatch:
+    inputs:
+      scope:
+        description: 'What to import'
+        required: true
+        default: peah
+        type: choice
+        options: [peah, berakhot, shabbat1, bereishis2, shemos]
+
+permissions:
+  contents: read
+
+jobs:
+  import:
+    runs-on: ubuntu-latest
+    timeout-minutes: 340
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.12' }
+      - uses: actions/setup-node@v4
+        with: { node-version: '22' }
+      - name: Build section files from the Sefaria export
+        run: python3 scripts/import_export.py --scope "${{ inputs.scope }}" --out out
+      - name: Upload to R2
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: bash scripts/upload_r2.sh out
+      - name: Summary
+        run: |
+          echo "### Import: ${{ inputs.scope }}" >> "$GITHUB_STEP_SUMMARY"
+          python3 - <<'PY' >> "$GITHUB_STEP_SUMMARY"
+          import json
+          m = json.load(open('out/manifest/${{ inputs.scope }}.json'))
+          print(f"- sections: **{m['sections']}**  base text: {m['base']['version']} ({m['base']['license']})")
+          print(f"- commentaries used: **{len(m['commentaries'])}**, skipped: **{len(m['skipped'])}**")
+          for s in m['skipped']: print(f"  - skipped {s['title']}: {s['reason']}")
+          PY
