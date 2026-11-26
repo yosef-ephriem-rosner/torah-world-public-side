@@ -1,0 +1,43 @@
+name: Build links (all books)
+# One streaming pass over Sefaria's links CSVs for every book in R2 catalog.json (falls back to the 6 first-run books).
+# Writes links/, linksin/, placement/ and reports/links/ to R2. Books whose sections are not in R2 are skipped.
+# Resumable: tick "resume" to skip books already finished (links/<book>.summary.json exists). Safe to re-run (files are overwritten).
+on:
+  workflow_dispatch:
+    inputs:
+      group:
+        description: 'Which part'
+        required: true
+        default: all
+        type: choice
+        options: [Tanakh, Mishnah, Talmud, all]
+      resume:
+        description: 'Skip books that already have links in R2'
+        required: false
+        default: true
+        type: boolean
+
+permissions:
+  contents: read
+
+jobs:
+  links:
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.12' }
+      - uses: actions/setup-node@v4
+        with: { node-version: '22' }
+      - run: npm ci
+      - name: Build and upload
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          if [ -z "$CLOUDFLARE_ACCOUNT_ID" ]; then
+            export CLOUDFLARE_ACCOUNT_ID=$(curl -s -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" https://api.cloudflare.com/client/v4/accounts | python3 -c "import json,sys;print(json.load(sys.stdin)['result'][0]['id'])")
+          fi
+          ARGS=""; if [ "${{ inputs.resume }}" = "true" ]; then ARGS="--resume"; fi
+          python3 scripts/links/links_all.py --group "${{ inputs.group }}" $ARGS --cache cache --out out

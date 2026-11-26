@@ -15,6 +15,21 @@ BOOKS = {
     'tanakh-genesis':    dict(dir='tanakh/genesis',     title='Genesis',           kind='tanakh', secs=[str(i) for i in range(32, 51)]),
     'tanakh-exodus':     dict(dir='tanakh/exodus',      title='Exodus',            kind='tanakh', secs=[str(i) for i in range(1, 41)]),
 }
+def set_books(books):
+    """replace the book table in place (so every module sees it) and rebuild the title index"""
+    global _TITLES
+    BOOKS.clear(); BOOKS.update(books)
+    _TITLES = sorted(((v['title'], k) for k, v in BOOKS.items()), key=lambda t: -len(t[0]))
+    for v in BOOKS.values(): v.setdefault('secset', set(v['secs']))
+    global _T2B
+    _T2B = {t: k for t, k in _TITLES}
+def catalog_books(cat):
+    """R2 catalog.json -> BOOKS-style dict"""
+    kind = {'chumash': 'tanakh', 'mishnah': 'mishnah', 'daf': 'talmud'}
+    return {b['id']: dict(dir=b['id'].replace('-', '/', 1), title=b['title'], kind=kind[b['type']], secs=list(b['secs'])) for b in cat['books']}
+def links_csv(cache, book):
+    p = os.path.join(cache, 'spool', book + '.csv')
+    return p if os.path.exists(p) else os.path.join(cache, 'links_filtered.csv')
 def section_key(book, sec): return f"sections/{BOOKS[book]['dir']}/{sec}.json"
 def load_section(cache, book, sec):
     fn = os.path.join(cache, section_key(book, sec))
@@ -43,19 +58,16 @@ def base_re(title):
     return re.compile(r'^' + re.escape(title) + r' (?P<sec>\w+):(?P<a>\d+)(?:-(?P<b>\d+))?$')
 
 # ---- generic ref parsing: Sefaria ref -> site passage (work, sec, idx) when the book is on the site ----
-_TITLES = sorted(((v['title'], k) for k, v in BOOKS.items()), key=lambda t: -len(t[0]))
+set_books(dict(BOOKS))
 _REF = re.compile(r'^(?P<title>.+?) (?P<sec>\d+[ab]?)(?::(?P<a>\d+))?(?:-(?P<b>[\w:]+))?$')
 def parse_site_ref(ref):
     """'Berakhot 10a:3-5' -> ('bavli-berakhot','10a',3). None if not a (in-scope) passage of one of our books.
     Whole-section refs map to idx 1. Cross-section ranges use the start."""
-    for title, book in _TITLES:
-        if ref.startswith(title + ' '):
-            m = _REF.match(ref)
-            if not m or m['title'] != title: return None
-            sec = m['sec']
-            if sec not in BOOKS[book]['secs']: return None
-            return book, sec, int(m['a'] or 1)
-    return None
+    m = _REF.match(ref)
+    if not m: return None
+    book = _T2B.get(m['title'])
+    if not book or m['sec'] not in BOOKS[book]['secset']: return None
+    return book, m['sec'], int(m['a'] or 1)
 def pick_from(c1, c2):
     """returns (own, other) where own is the site-side ref (Citation 1 preferred), or None"""
     a = parse_site_ref(c1)

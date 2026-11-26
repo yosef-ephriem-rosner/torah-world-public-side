@@ -8,7 +8,7 @@ CAT_TYPE = {'Halakhah': 'halakhah', 'Responsa': 'halakhah', 'Midrash': 'midrash'
 def build(book, cache):
     own_title = BOOKS[book]['title']; stats = collections.Counter(); out = collections.defaultdict(dict)
     comm_on_site = re.compile(r' on (' + '|'.join(re.escape(b['title']) for b in BOOKS.values()) + r') \d')
-    for r in csv.reader(open(os.path.join(cache, 'links_filtered.csv'), encoding='utf-8')):
+    for r in csv.reader(open(links_csv(cache, book), encoding='utf-8')):
         c1, c2, ctype, cat1, cat2 = r[0], r[1], r[2], r[5], r[6]
         pf = pick_from(c1, c2)
         if not pf: continue

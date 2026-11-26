@@ -91,22 +91,29 @@ def site_tanakh_target(ref):
         if m[2] in BOOKS[b]['secs']: return dict(work=b, sec=m[2], idx=int(m[3]))
     return {'sefaria': ref}
 
-def build(book, cache, tanakh_min=3, tanakh_df=6, mishnah_min=6, gem_min=10, gem_df=12):
-    tan = tanakh_corpus(cache)
+_CTX = {}; _COMMON = {}
+def context(cache):
+    """Tanakh / Mishnah / Gemara indexes over everything cached (built once per process)"""
+    if cache in _CTX: return _CTX[cache]
     ti = Index(3)
-    for ref, toks in tan: ti.add(ref, toks)
-    kind = BOOKS[book]['kind']; secs = load_book(cache, book); out = collections.defaultdict(list); stats = collections.Counter()
-    # mishnah / gemara corpora from whatever is cached (R2 section files)
+    for ref, toks in tanakh_corpus(cache): ti.add(ref, toks)
     gi = Index(6); mi = Index(5)
     for b in BOOKS:
+        if BOOKS[b]['kind'] == 'tanakh': continue
         for s, d in load_book(cache, b).items():
             for i, seg in enumerate(d['text']['segments'], 1):
                 toks, _ = seg_tokens(seg)
-                if BOOKS[b]['kind'] == 'talmud': gi.add((b, s, i), toks)
-                elif BOOKS[b]['kind'] == 'mishnah': mi.add((b, s, i), toks)
-    freq = collections.Counter()
-    for _, ts in gi.units: freq.update(set(ts))
-    common = {w for w, _ in freq.most_common(250)}          # formula / attribution words are not evidence of a parallel
+                (gi if BOOKS[b]['kind'] == 'talmud' else mi).add((b, s, i), toks)
+    _CTX[cache] = (ti, gi, mi); return _CTX[cache]
+
+def build(book, cache, tanakh_min=3, tanakh_df=6, mishnah_min=6, gem_min=10, gem_df=12):
+    ti, gi, mi = context(cache)
+    kind = BOOKS[book]['kind']; secs = load_book(cache, book); out = collections.defaultdict(list); stats = collections.Counter()
+    if cache not in _COMMON:
+        freq = collections.Counter()
+        for _, ts in gi.units: freq.update(set(ts))
+        _COMMON[cache] = {w for w, _ in freq.most_common(250)}   # formula / attribution words are not evidence of a parallel
+    common = _COMMON[cache]
     def content(toks): return sum(1 for w in toks if w not in common)
     for sec, d in secs.items():
         for i, seg in enumerate(d['text']['segments'], 1):

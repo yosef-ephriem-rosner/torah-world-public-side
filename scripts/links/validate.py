@@ -41,7 +41,7 @@ def is_match(dh, vocab):
 def load_links(cache, book):
     t = BOOKS[book]['title']; rr, br = ref_re(t), base_re(t)
     place = collections.defaultdict(set)   # (who, sec, seg, idx|None) -> base segs per Sefaria
-    for r in csv.reader(open(os.path.join(cache, 'links_filtered.csv'), encoding='utf-8')):
+    for r in csv.reader(open(links_csv(cache, book), encoding='utf-8')):
         for a, b in ((r[0], r[1]), (r[1], r[0])):
             m = rr.match(a); n = br.match(b)
             if m and n and m['sec'] == n['sec'] and r[2] in ('commentary', ''):
@@ -54,8 +54,11 @@ def load_links(cache, book):
 def pct(a, b): return round(100 * a / b, 1) if b else None
 
 def main():
-    ap = argparse.ArgumentParser(); ap.add_argument('--book', required=True); ap.add_argument('--cache', default='cache'); ap.add_argument('--out', default='out')
+    ap = argparse.ArgumentParser(); ap.add_argument('--book', required=True); ap.add_argument('--cache', default='cache'); ap.add_argument('--out', default='out'); ap.add_argument('--catalog', action='store_true')
     a = ap.parse_args(); book = a.book
+    if a.catalog:
+        import r2, common; fn = r2.get('catalog.json', a.cache)
+        if fn: common.set_books(common.catalog_books(json.load(open(fn))))
     secs = load_book(a.cache, book); place = load_links(a.cache, book)
     st = collections.defaultdict(lambda: dict(comments=0, with_dh=0, exact=0, neighbor=0, elsewhere=0, none=0, linked=0, sef_dh=0, sef_dh_ok=0, aligned=0, misaligned=0, unlinked=0, susp=[], lic=None))
     corr = collections.defaultdict(dict); infer = collections.defaultdict(dict)
