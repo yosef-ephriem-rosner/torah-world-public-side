@@ -2,6 +2,9 @@ name: Build search index
 # Offline full-text index (docs/SEARCH_DESIGN.md). 1) partial index per book (matrix, max-parallel 2, resumable: books that already have
 # search/_partial/<id>.json.gz in R2 are skipped unless `force`), 2) merge all partials -> search/v<stamp>/** + search/manifest.json (uploaded last).
 on:
+  push:                       # lets the branch run before the workflow exists on main: edit .github/search_run.txt and push
+    branches: [search-work]
+    paths: ['.github/search_run.txt']
   workflow_dispatch:
     inputs:
       force:
@@ -79,7 +82,7 @@ jobs:
 
   merge:
     needs: [plan, partial]
-    if: ${{ !cancelled() && inputs.merge && needs.plan.result == 'success' }}
+    if: ${{ !cancelled() && (github.event_name != 'workflow_dispatch' || inputs.merge) && needs.plan.result == 'success' }}
     runs-on: ubuntu-latest
     timeout-minutes: 340
     steps:
