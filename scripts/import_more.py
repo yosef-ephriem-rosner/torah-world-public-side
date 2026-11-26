@@ -62,12 +62,12 @@ def plan():
             for d in groups.values(): d['order'] = 2000 + len(out); d.setdefault('comm_suffix', None); out.append(d)
     return out
 
-def place(node, nbase):
+def place(node, nbase, str_ok=False):
     """node = commentary text for one section (list per base segment). returns (seg_map, unplaced list)"""
     if node is None: return {}, []
     if isinstance(node, str): return {}, [clean(node)] if clean(node) else []
     if not isinstance(node, list): return {}, []
-    keyed = len(node) == nbase and all(isinstance(e, list) or e in ('', None) for e in node)
+    keyed = len(node) == nbase and all(isinstance(e, list) or e in ('', None) or (str_ok and isinstance(e, str)) for e in node)
     if keyed:
         seg = {}
         for i, e in enumerate(node):
@@ -110,14 +110,23 @@ def main():
     for t in comm_titles:
         v = pick_version(bytitle[t], [], log, t)
         if v: v['full'] = t; v['short'] = t[:-len(info['comm_suffix'])]; comms.append(v)
+    btext = base['text']
+    # a commentary whose per-section nodes are plain strings is segment-keyed only if (almost) every one has exactly as many entries as the base segments
+    for c in comms:
+        n = ok = 0
+        for ci, ch in enumerate(btext):
+            if not isinstance(ch, list): continue
+            for node, nb in (((get(c['text'], ci, hi), len(hal) if isinstance(hal, list) else 1) for hi, hal in enumerate(ch)) if yer else [(get(c['text'], ci), len(ch))]):
+                if isinstance(node, list) and node and all(isinstance(e, str) for e in node): n += 1; ok += (len(node) == nb)
+        c['str_ok'] = n >= 3 and ok >= 0.9 * n
     work = info['id'].replace('-', '/', 1); wdir = os.path.join(a.out, 'sections', work)
     os.makedirs(wdir, exist_ok=True); os.makedirs(os.path.join(a.out, 'manifest'), exist_ok=True)
-    btext = base['text']; secs = []; labels = {}; stats = collections.Counter(); unpl = collections.Counter(); nsec = 0
+    secs = []; labels = {}; stats = collections.Counter(); unpl = collections.Counter(); nsec = 0
     def emit(sec, label, base_segs, node_of):
         nonlocal nsec
         out_comm = []
         for c in comms:
-            seg, up = place(node_of(c['text']), len(base_segs))
+            seg, up = place(node_of(c['text']), len(base_segs), c['str_ok'])
             if seg or up:
                 e = {'who': c['short'], 'title': c['full'], 'he_title': c['he_title'], 'version': c['version'], 'license': c['license'], 'source': c['source'], 'seg': seg}
                 if up: e['unplaced'] = up
