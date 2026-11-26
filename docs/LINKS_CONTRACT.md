@@ -52,3 +52,6 @@ All keys use the catalog book id (`bavli-berakhot`); section ids as in `sections
 
 ### `linksin/<book>/<sec>.json` (incoming links)
 Same shape as `links/`; every entry is the inverse of a link whose `to` is a passage of this book: `from` = the other passage `{work, sec, idx, ws?, we?}`, `to` = `{work, sec, idx}` in this section. Links whose other side is not on the site stay only in the other direction's file, they are not repeated here.
+
+### Link packs (links, linksin, placement)
+`linkpacks/<book-id>/<kind>.index.json` (kind = `links` | `linksin` | `placement`) = `{"v":1,"files":["<name>",...],"secs":{"<sec>":[fileIdx,offset,length]}}`; the `files` are keys under `linkpacks/<book-id>/` (`<kind>-<stamp>-<k>.bin`, versioned, never overwritten, index uploaded last). Each `secs` entry is the exact bytes of the per-file JSON. Per-file objects (`links/`, `linksin/`, `placement/`) are still written; the Worker tries the pack first. Placement packs exist only for books rebuilt by the run that wrote them.

@@ -92,4 +92,7 @@ def main():
     if not a.no_upload:
         ok = r2.put_many(ups, workers=16)
         if not all(ok): sys.exit('some uploads failed (re-run with --resume: safe)')
+        print('packing ...', flush=True)
+        import pack_links
+        if not pack_links.pack({b: v['secs'] for b, v in BOOKS.items()}, a.out, a.cache): sys.exit('some packs failed (re-run: safe)')
 if __name__ == '__main__': main()
