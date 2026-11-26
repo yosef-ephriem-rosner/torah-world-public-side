@@ -1,0 +1,74 @@
+name: Import Musar/Chasidut/Kabbalah/Thought/Liturgy to R2
+# Content session A: scripts/import_thought.py. Dispatch, or push to content-a-work editing .github/thought_request.json ({"family":"musar"}).
+on:
+  workflow_dispatch:
+    inputs:
+      family:
+        description: 'Family'
+        required: true
+        default: musar
+        type: choice
+        options: [musar, chasidut, kabbalah, jewishthought, liturgy]
+  push:
+    branches: [content-a-work]
+    paths: ['.github/thought_request.json']
+
+permissions:
+  contents: read
+
+jobs:
+  plan:
+    runs-on: ubuntu-latest
+    outputs:
+      chunks: ${{ steps.list.outputs.chunks }}
+      family: ${{ steps.list.outputs.family }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.12' }
+      - id: list
+        run: |
+          if [ "${{ github.event_name }}" = push ]; then FAM=$(python3 -c "import json;print(json.load(open('.github/thought_request.json'))['family'])"); else FAM='${{ inputs.family }}'; fi
+          echo "family=$FAM" >> "$GITHUB_OUTPUT"
+          echo "chunks=$(python3 scripts/import_thought.py --plan $FAM --chunk 6)" >> "$GITHUB_OUTPUT"
+
+  import:
+    needs: plan
+    runs-on: ubuntu-latest
+    timeout-minutes: 340
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        chunk: ${{ fromJson(needs.plan.outputs.chunks) }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.12' }
+      - name: Build section files from the Sefaria export
+        run: |
+          python3 scripts/import_thought.py --books "${{ matrix.chunk }}" --out out | tee build.log
+          ! grep -q ': ERROR' build.log
+      - name: Upload to R2
+        if: ${{ always() }}
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          if [ -d out ]; then python3 scripts/upload_r2.py out --threads 2; fi
+
+  catalog:
+    needs: [plan, import]
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.12' }
+      - name: Write catalog/<family>.json from the manifests in R2
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          python3 scripts/import_thought.py --build-catalog ${{ needs.plan.outputs.family }} --out cat
+          python3 scripts/upload_r2.py cat --threads 1
