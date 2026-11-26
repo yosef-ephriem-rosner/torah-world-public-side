@@ -9,3 +9,5 @@ data/fetch.log
 backup*.sql
 out/
 cat/
+__pycache__/
+*.pyc
