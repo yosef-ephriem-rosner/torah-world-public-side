@@ -9,7 +9,7 @@ on:
         required: true
         default: peah
         type: choice
-        options: [peah, berakhot, shabbat1, bereishis2, shemos]
+        options: [peah, mishnah_berakhot, berakhot, shabbat1, bereishis2, shemos]
 
 permissions:
   contents: read

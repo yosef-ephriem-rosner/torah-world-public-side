@@ -26,6 +26,7 @@ def amudim(first, last):
 
 SCOPES = {
     'peah':       dict(work='mishnah/peah', kind='mishnah', book='Mishnah Peah', cat='Mishnah', secs=[str(i) for i in range(1, 9)], base_pref=['Torat Emet 357']),
+    'mishnah_berakhot': dict(work='mishnah/berakhot', kind='mishnah', book='Mishnah Berakhot', cat='Mishnah', secs=[str(i) for i in range(1, 10)], base_pref=['Torat Emet 357']),
     'berakhot':   dict(work='bavli/berakhot', kind='talmud', book='Berakhot', cat='Talmud', secs=amudim('2a', '64a'), base_pref=['William Davidson Edition - Vocalized Aramaic']),
     'shabbat1':   dict(work='bavli/shabbat', kind='talmud', book='Shabbat', cat='Talmud', secs=amudim('2a', '51b'), base_pref=['William Davidson Edition - Vocalized Aramaic']),  # through end of Perek 4 (Shabbat 51b:6)
     'bereishis2': dict(work='tanakh/genesis', kind='tanakh', book='Genesis', cat='Tanakh', secs=[str(i) for i in range(32, 51)], base_pref=['Miqra according to the Masorah']),  # Vayishlach (32:4) to end

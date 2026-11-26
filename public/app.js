@@ -23,11 +23,21 @@ const t = k => I[lang][k] || I.en[k] || k;
 function applyLang() { document.documentElement.lang = lang; document.documentElement.dir = lang === 'he' ? 'rtl' : 'ltr'; $$('[data-t]').forEach(e => e.textContent = t(e.dataset.t)); $$('[data-ph]').forEach(e => e.placeholder = t(e.dataset.ph)); }
 $('#lang').onclick = () => { lang = lang === 'en' ? 'he' : 'en'; localStorage.lang = lang; applyLang(); renderWho(); route(); };
 // ---------- works
+const rng = (a, b) => Array.from({ length: b - a + 1 }, (_, i) => String(a + i));
+const dafs = (first, last) => { const out = []; let n = parseInt(first), side = first.slice(-1); const end = [parseInt(last), last.slice(-1)]; for (;;) { out.push(n + side); if (n === end[0] && side === end[1]) break; if (side === 'a') side = 'b'; else { side = 'a'; n++; } } return out; };
+const chapLabel = s => 'פרק ' + gem(+s), dafLabel = s => 'דף ' + gem(parseInt(s)) + (s.endsWith('a') ? ' ע״א' : ' ע״ב');
 const WORKS = {
-  shemos: { he: 'שמות', en: 'Shemos', kind: 'chapter', secs: Array.from({ length: 40 }, (_, i) => String(i + 1)), unit: 'פסוק', label: s => 'פרק ' + gem(+s), lab2: s => 'Chapter ' + s, num: i => gem(i), who: ['Rashi', 'Onkelos', 'Ibn Ezra', 'Ramban', 'Rashbam', 'Sforno', 'Or HaChaim'] },
-  mishnah: { he: 'משנה ברכות', en: 'Mishnah Berakhos', kind: 'chapter', secs: Array.from({ length: 9 }, (_, i) => String(i + 1)), unit: 'משנה', label: s => 'פרק ' + gem(+s), lab2: s => 'Chapter ' + s, num: i => gem(i), who: ['Bartenura', 'Rambam', 'Tosafot Yom Tov', 'Ikar Tosafot Yom Tov'] },
-  gemara: { he: 'גמרא ברכות', en: 'Gemara Berakhos', kind: 'daf', secs: (() => { const a = []; for (let n = 2; n <= 64; n++) { a.push(n + 'a'); if (n < 64) a.push(n + 'b'); } return a; })(), unit: 'שורה', label: s => 'דף ' + gem(parseInt(s)) + (s.endsWith('a') ? ' ע״א' : ' ע״ב'), lab2: s => 'Daf ' + s, num: i => i, who: ['Rashi', 'Tosafot', 'Rashba', 'Ritva', 'Meiri'] }
+  'tanakh-genesis': { he: 'בראשית (מוישלח ואילך)', en: 'Bereishis, Vayishlach onward', type: 'chumash', secs: rng(32, 50), label: chapLabel, lab2: s => 'Chapter ' + s, num: i => gem(i) },
+  'tanakh-exodus': { he: 'שמות', en: 'Shemos', type: 'chumash', targum: true, secs: rng(1, 40), label: chapLabel, lab2: s => 'Chapter ' + s, num: i => gem(i) },
+  'mishnah-berakhot': { he: 'משנה ברכות', en: 'Mishnah Berakhos', type: 'mishnah', secs: rng(1, 9), label: chapLabel, lab2: s => 'Chapter ' + s, num: i => gem(i) },
+  'mishnah-peah': { he: 'משנה פאה', en: 'Mishnah Peah', type: 'mishnah', secs: rng(1, 8), label: chapLabel, lab2: s => 'Chapter ' + s, num: i => gem(i) },
+  'bavli-berakhot': { he: 'גמרא ברכות', en: 'Gemara Berakhos', type: 'daf', secs: dafs('2a', '64a'), label: dafLabel, lab2: s => 'Daf ' + s, num: i => i },
+  'bavli-shabbat': { he: 'גמרא שבת (פרקים א–ד)', en: 'Gemara Shabbos, chapters 1-4', type: 'daf', secs: dafs('2a', '51b'), label: dafLabel, lab2: s => 'Daf ' + s, num: i => i }
 };
+const ALIAS = { shemos: 'tanakh-exodus', mishnah: 'mishnah-berakhot', gemara: 'bavli-berakhot' }; // old links keep working
+const WHO_ORDER = ['Rashi', 'Tosafot', 'Onkelos', 'Ibn Ezra', 'Ramban', 'Rashbam', 'Sforno', 'Or HaChaim', 'Bartenura', 'Rambam', 'Tosafot Yom Tov', 'Ikar Tosafot Yom Tov', 'Rashba', 'Ritva', 'Meiri'];
+const whoRank = x => { const i = WHO_ORDER.indexOf(x); return i < 0 ? 100 : i; };
+const whoSort = (a, b) => whoRank(a) - whoRank(b) || a.localeCompare(b);
 const HEWHO = { Rashi: 'רש״י', Onkelos: 'אונקלוס', 'Ibn Ezra': 'אבן עזרא', Ramban: 'רמב״ן', Rashbam: 'רשב״ם', Sforno: 'ספורנו', 'Or HaChaim': 'אור החיים', Bartenura: 'ברטנורא', Rambam: 'רמב״ם', 'Tosafot Yom Tov': 'תוספות יום טוב', 'Ikar Tosafot Yom Tov': 'עיקר תוספות יום טוב', Tosafot: 'תוספות', Rashba: 'רשב״א', Ritva: 'ריטב״א', Meiri: 'מאירי' };
 const LEVELS = { student: 'Student', working_man: 'Working man (baal habayis)', avreich: 'Avreich / kollel', talmid_chacham: 'Talmid chacham', rav: 'Rav / posek', rosh_yeshiva: 'Rosh yeshiva' };
 const PROS = ['avreich', 'rav', 'talmid_chacham', 'rosh_yeshiva'];
@@ -112,7 +122,7 @@ const app = $('#app');
 function route() {
   const hash = location.hash.replace(/^#\/?/, ''), [path, qs] = hash.split('?'), p = path.split('/');
   window.scrollTo(0, 0);
-  if (p[0] === 'read') return readPage(p[1], decodeURIComponent(p[2] || ''), p[3] ? +p[3] : null);
+  if (p[0] === 'read') { if (ALIAS[p[1]]) { location.replace('#/read/' + ALIAS[p[1]] + '/' + (p[2] || '') + (p[3] ? '/' + p[3] : '')); return; } return readPage(p[1], decodeURIComponent(p[2] || ''), p[3] ? +p[3] : null); }
   if (p[0] === 'chavrusa') return chavrusaPage();
   if (p[0] === 'search') return searchPage(new URLSearchParams(qs).get('q') || '');
   if (p[0] === 'me') return mePage();
@@ -121,10 +131,11 @@ function route() {
 window.addEventListener('hashchange', route);
 $('#sform').onsubmit = e => { e.preventDefault(); const q = $('#sq').value.trim(); if (q) location.hash = '#/search?q=' + encodeURIComponent(q); };
 function home() {
+  const groups = [['Tanach · תנ״ך', ['tanakh-genesis', 'tanakh-exodus']], ['Mishna · משנה', ['mishnah-berakhot', 'mishnah-peah']], ['Gemara · גמרא', ['bavli-berakhot', 'bavli-shabbat']]];
   app.innerHTML = `<div class="hero"><h1>עולם התורה</h1><p class="mut">Learn the text. Add your notes and questions right on the words. See the mefarshim and links beside it.</p></div>
-  <div class="grid">${Object.entries(WORKS).map(([k, w]) => `<a class="card tile" href="#/read/${k}/${w.secs[0]}"><b>${w.he}</b><div class="mut">${w.en}</div><div class="mut" style="font-size:13px">${w.who.map(x => HEWHO[x]).join(' · ')}</div></a>`).join('')}
-  <a class="card tile" href="#/chavrusa"><b>חברותא</b><div class="mut">Find a learning partner — now or scheduled</div></a></div>
-  <div class="card mut" style="font-size:13px"><b>How it works.</b> Click any verse/line to open its mefarshim, cross-references and the community notes. Select words to attach a note or a question to exactly those words. Notes can be private, public, professionals-only, or group-only. Anyone can answer, comment and vote.</div>`;
+  ${groups.map(([title, ids]) => `<h3 style="margin:18px 0 4px">${title}</h3><div class="grid">${ids.map(id => { const w = WORKS[id]; return `<a class="card tile" href="#/read/${id}/${w.secs[0]}"><b>${w.he}</b><div class="mut">${w.en}</div></a>`; }).join('')}</div>`).join('')}
+  <h3 style="margin:18px 0 4px">חברותא</h3><div class="grid"><a class="card tile" href="#/chavrusa"><b>חברותא</b><div class="mut">Find a learning partner — now or scheduled</div></a></div>
+  <div class="card mut" style="font-size:13px"><b>How it works.</b> Click any verse/line to open its mefarshim, cross-references and the community notes. Select words to attach a note or a question to exactly those words. Notes can be private, public, professionals-only, or group-only. Anyone can answer, comment and vote. Every text and commentary shows its source and license under the page.</div>`;
 }
 // ---------- reader
 let S = null; // reader state
@@ -142,19 +153,23 @@ async function readPage(work, sec, sel) {
     <select id="secsel">${W.secs.map(s => `<option value="${s}" ${s === sec ? 'selected' : ''}>${W.label(s)} (${W.lab2(s)})</option>`).join('')}</select>
     <button class="ghost sm" id="next" ${i < W.secs.length - 1 ? '' : 'disabled'}>▶</button>
     <label><input type="checkbox" id="lmk" checked> markers</label><label><input type="checkbox" id="lhl" checked> highlights</label>
-    <label><input type="checkbox" id="lsb" checked> sidebar</label>${work === 'shemos' ? `<label><input type="checkbox" id="ltg" ${localStorage.targum === '1' ? 'checked' : ''}> תרגום אונקלוס</label>` : ''}${work === 'gemara' ? `<select id="dview"><option value="page" ${localStorage.dafView !== 'live' ? 'selected' : ''}>צורת הדף · Page view</option><option value="live" ${localStorage.dafView === 'live' ? 'selected' : ''}>Live layout</option></select>` : ''}${work !== 'shemos' || true ? `<label><input type="checkbox" id="lnk" ${localStorage.nikud === '1' ? 'checked' : ''}> ניקוד</label>` : ''}</div>
+    <label><input type="checkbox" id="lsb" checked> sidebar</label>${W.targum ? `<label><input type="checkbox" id="ltg" ${localStorage.targum === '1' ? 'checked' : ''}> תרגום אונקלוס</label>` : ''}${W.type === 'daf' ? `<select id="dview"><option value="page" ${localStorage.dafView !== 'live' ? 'selected' : ''}>צורת הדף · Page view</option><option value="live" ${localStorage.dafView === 'live' ? 'selected' : ''}>Live layout</option></select>` : ''}${true ? `<label><input type="checkbox" id="lnk" ${localStorage.nikud === '1' ? 'checked' : ''}> ניקוד</label>` : ''}</div>
     <div class="reader" id="rd"><div><div class="card" id="text"></div></div><div class="card" id="side"></div></div>`;
   $('#prev').onclick = () => location.hash = `#/read/${work}/${W.secs[i - 1]}`;
   $('#next').onclick = () => location.hash = `#/read/${work}/${W.secs[i + 1]}`;
   $('#secsel').onchange = e => location.hash = `#/read/${work}/${e.target.value}`;
   $('#lmk').onchange = e => $('#text').classList.toggle('hidemk', !e.target.checked);
   $('#lhl').onchange = e => $('#text').classList.toggle('hidehl', !e.target.checked);
-  $('#lsb').onchange = e => { $('#rd').classList.toggle('nosb', !e.target.checked); if (work === 'gemara') renderText(); };
+  $('#lsb').onchange = e => { $('#rd').classList.toggle('nosb', !e.target.checked); if (W.type === 'daf') renderText(); };
   if ($('#ltg')) $('#ltg').onchange = e => { localStorage.targum = e.target.checked ? '1' : '0'; renderText(); };
   if ($('#dview')) $('#dview').onchange = e => { localStorage.dafView = e.target.value; renderText().then(paintHighlights); };
   $('#lnk').onchange = e => { localStorage.nikud = e.target.checked ? '1' : '0'; renderText().then(paintHighlights); };
   await renderText();
   if (my !== navId) return;
+  if (data.sources) {
+    const s = data.sources, lic = x => `${esc(x.license)}${x.source ? ` · <a href="${esc(x.source)}" target="_blank" rel="noopener">source</a>` : ''}`;
+    $('#text').parentElement.insertAdjacentHTML('beforeend', `<details class="card src" style="font-size:12px"><summary>Sources &amp; licenses</summary><div><b>Text:</b> ${esc(s.text.version)} — ${lic(s.text)}</div>${s.commentary.slice().sort((a, b) => whoSort(a.who, b.who)).map(c => `<div><b>${esc(c.who)}:</b> ${esc(c.version)} — ${lic(c)}</div>`).join('')}<div class="mut" style="margin-top:6px">Texts come from <a href="https://www.sefaria.org" target="_blank" rel="noopener">Sefaria</a> and keep their own licenses. Non-commercial use; attribution required.</div></details>`);
+  }
   await loadSectionNotes();
   if (my !== navId) return;
   selectSeg(sel || null);
@@ -170,8 +185,8 @@ function segHTML(sg, num, nc, lead) {
 async function renderText() {
   const box = $('#text'); box.innerHTML = ''; box.className = 'card page ' + S.work;
   const { nc } = counts();
-  if (S.work === 'gemara') await renderDaf(box, nc);
-  else if (S.work === 'shemos') renderChumash(box, nc);
+  if (S.W.type === 'daf') await renderDaf(box, nc);
+  else if (S.W.type === 'chumash') renderChumash(box, nc);
   else box.innerHTML = S.data.segments.map(sg => `<p class="mish">${segHTML(sg, '', nc, `<b class="mnum">${gem(sg.idx)}.</b> `)}</p>`).join('');
   box.onmouseup = onSelect;
   box.onclick = e => {
@@ -212,7 +227,7 @@ async function renderDaf(box, nc) {
   const fixed = view === 'page', avail = box.clientWidth - 12;
   const s = window.__PRECOMPUTE ? 1 : (fixed ? Math.max(PAGE_MIN, Math.min(1.15, avail / PAGE_W)) : 1);
   const width = fixed ? Math.round(PAGE_W * s) : Math.max(520, Math.min(960, box.clientWidth - 30));
-  const stored = fixed && !window.__PRECOMPUTE && window.DAF_LAYOUTS ? window.DAF_LAYOUTS[sec + '|' + (nikud ? 1 : 0)] : null;
+  const stored = fixed && !window.__PRECOMPUTE && window.DAF_LAYOUTS ? window.DAF_LAYOUTS[S.work + '|' + sec + '|' + (nikud ? 1 : 0)] : null;
   const k = fixed ? s : 1, px = v => (v * k) + 'px';
   const opts = {
     contentWidth: width + 'px', mainWidth: '46%', padding: { vertical: px(8), horizontal: px(14) }, innerPadding: px(4), outerPadding: px(4),
@@ -226,11 +241,11 @@ async function renderDaf(box, nc) {
   r.render(main, side('Rashi'), side('Tosafot'), amud);
   window.__lastDaf = r;
   if (fixed) { wrap.classList.add('fixedpage'); S.fitW = avail; }
-  window.__dafDone = { sec, nikud, view, spacers: r.spacerHeights, height: holder.offsetHeight, stored: !!stored, scale: k };
+  window.__dafDone = { work: S.work, sec, nikud, view, spacers: r.spacerHeights, height: holder.offsetHeight, stored: !!stored, scale: k };
 }
 if (!window.__fitBound) {
   window.__fitBound = 1; let tm;
-  window.addEventListener('resize', () => { clearTimeout(tm); tm = setTimeout(() => { if (S && S.work === 'gemara' && S.fitW && $('#daf') && Math.abs(($('#text').clientWidth - 12) - S.fitW) > 24) renderText().then(paintHighlights); }, 250); });
+  window.addEventListener('resize', () => { clearTimeout(tm); tm = setTimeout(() => { if (S && S.W && S.W.type === 'daf' && S.fitW && $('#daf') && Math.abs(($('#text').clientWidth - 12) - S.fitW) > 24) renderText().then(paintHighlights); }, 250); });
 }
 function paintHighlights() {
   $$('.w.hl').forEach(w => { w.classList.remove('hl', 'me'); w.removeAttribute('title'); });
@@ -280,8 +295,9 @@ function renderSide() {
   if (S.tab === 'commentary') {
     if (!cm.length) tb.innerHTML = '<p class="mut">No imported commentary on this segment.</p>';
     const by = {}; cm.forEach(c => (by[c.who] = by[c.who] || []).push(c));
-    for (const who of Object.keys(by).sort((a, b) => W.who.indexOf(a) - W.who.indexOf(b))) {
-      const d = h(`<details class="cm" ${(S.openWho ? who === S.openWho : who === W.who[0]) ? 'open' : ''}><summary>${esc(HEWHO[who] || who)} <span class="mut">${esc(who)} · ${by[who].length}</span></summary></details>`);
+    const whos = Object.keys(by).sort(whoSort);
+    for (const who of whos) {
+      const d = h(`<details class="cm" ${(S.openWho ? who === S.openWho : who === whos[0]) ? 'open' : ''}><summary>${esc(HEWHO[who] || who)} <span class="mut">${esc(who)} · ${by[who].length}</span></summary></details>`);
       by[who].forEach(c => { const x = document.createElement('div'); x.className = 'cmt'; x.innerHTML = dhBold(c.he, who); d.append(x); }); tb.append(d);
     }
   } else if (S.tab === 'links') {

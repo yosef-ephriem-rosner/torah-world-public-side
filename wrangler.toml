@@ -7,3 +7,7 @@ workers_dev = true
 binding = "DB"
 database_name = "torah-world"
 database_id = "b84cdebc-874f-4fde-8d2b-565a002b903a"
+
+[[r2_buckets]]
+binding = "R2"
+bucket_name = "torah-world-data"

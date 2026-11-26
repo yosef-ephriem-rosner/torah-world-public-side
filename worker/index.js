@@ -28,7 +28,9 @@ async function login(env, user) {
 }
 const s = (v, n) => String(v ?? '').slice(0, n);
 const int = v => (Number.isFinite(+v) ? Math.trunc(+v) : null);
-const WORKS = { shemos: 1, mishnah: 1, gemara: 1 };
+const WORKS = { 'tanakh-genesis': 1, 'tanakh-exodus': 1, 'mishnah-berakhot': 1, 'mishnah-peah': 1, 'bavli-berakhot': 1, 'bavli-shabbat': 1 };
+// older D1 tables (cross-reference groups, Onkelos alignment) were keyed by the first three work ids
+const LEGACY = { 'tanakh-exodus': 'shemos', 'mishnah-berakhot': 'mishnah', 'bavli-berakhot': 'gemara' };
 
 // Visibility predicate for notes `n` for viewer `u` (may be null)
 function visSql(u, groupIds) {
@@ -98,17 +100,23 @@ R('POST', '/api/me/level', async ({ req, env, u }) => {
 // ---- text
 R('GET', '/api/section', async ({ url, env }) => {
   const work = url.searchParams.get('work'), sec = url.searchParams.get('sec');
-  if (!WORKS[work] || !sec) return err('bad ref');
-  const [segs, comms, xr, nc, al] = await env.DB.batch([
-    env.DB.prepare('SELECT idx,he FROM segments WHERE work=? AND sec=? ORDER BY idx').bind(work, sec),
-    env.DB.prepare('SELECT idx,who,n,he FROM comments WHERE work=? AND sec=? ORDER BY idx,who,n').bind(work, sec),
-    env.DB.prepare('SELECT idx,cat,items FROM xrefs WHERE work=? AND sec=?').bind(work, sec),
+  if (!WORKS[work] || !sec || !/^[0-9]{1,3}[ab]?$/.test(sec)) return err('bad ref');
+  const obj = await env.R2.get('sections/' + work.replace('-', '/') + '/' + sec + '.json');
+  if (!obj) return err('not found', 404);
+  const doc = await obj.json();
+  const segments = doc.text.segments.map((he, i) => ({ idx: i + 1, he })).filter(s => s.he);
+  const comments = [];
+  for (const c of doc.commentary) for (const [idx, arr] of Object.entries(c.seg)) arr.forEach((he, n) => comments.push({ idx: +idx, who: c.who, n: n + 1, he }));
+  comments.sort((a, b) => a.idx - b.idx || a.who.localeCompare(b.who) || a.n - b.n);
+  const lw = LEGACY[work] || '-';
+  const [xr, nc, al] = await env.DB.batch([
+    env.DB.prepare('SELECT idx,cat,items FROM xrefs WHERE work=? AND sec=?').bind(lw, sec),
     env.DB.prepare("SELECT idx,COUNT(*) c FROM notes WHERE work=? AND sec=? AND visibility='public' GROUP BY idx").bind(work, sec),
-    env.DB.prepare('SELECT idx,pairs FROM align WHERE work=? AND sec=?').bind(work, sec),
+    env.DB.prepare('SELECT idx,pairs FROM align WHERE work=? AND sec=?').bind(lw, sec),
   ]);
-  if (!segs.results.length) return err('not found', 404);
-  return json({ segments: segs.results, comments: comms.results, xrefs: xr.results.map(r => ({ idx: r.idx, cat: r.cat, items: JSON.parse(r.items) })), noteCounts: nc.results, align: al.results },
-    200, { 'cache-control': 'no-store' });
+  const sources = { text: { version: doc.text.version, license: doc.text.license, source: doc.text.source },
+    commentary: doc.commentary.map(c => ({ who: c.who, title: c.title, version: c.version, license: c.license, source: c.source })) };
+  return json({ segments, comments, xrefs: xr.results.map(r => ({ idx: r.idx, cat: r.cat, items: JSON.parse(r.items) })), noteCounts: nc.results, align: al.results, sources });
 });
 R('GET', '/api/search', async ({ url, env, u }) => {
   const q = s(url.searchParams.get('q'), 60).replace(/[֑-ׇ]/g, '').trim();
