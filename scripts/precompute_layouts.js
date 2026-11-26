@@ -6,13 +6,17 @@ const fs = require('fs'), path = require('path');
 const BASE = process.argv[2] || 'http://localhost:8787';
 const root = path.join(__dirname, '..');
 const dafs = (first, last) => { const out = []; let n = parseInt(first), side = first.slice(-1); const end = [parseInt(last), last.slice(-1)]; for (;;) { out.push(n + side); if (n === end[0] && side === end[1]) break; if (side === 'a') side = 'b'; else { side = 'a'; n++; } } return out; };
-const BOOKS = { 'bavli-berakhot': dafs('2a', '64a'), 'bavli-shabbat': dafs('2a', '51b') };
+let BOOKS = { 'bavli-berakhot': dafs('2a', '64a'), 'bavli-shabbat': dafs('2a', '51b') };
 (async () => {
   const out = fs.existsSync(path.join(root, 'layouts.json')) ? JSON.parse(fs.readFileSync(path.join(root, 'layouts.json'))) : {};
   const only = process.argv[3] || ''; // optional: one book id
   const br = await chromium.launch(); const pg = await (await br.newContext({ viewport: { width: 1400, height: 1000 } })).newPage();
   await pg.addInitScript(() => { window.__PRECOMPUTE = true; });
-  await pg.goto(BASE + '/#/read/mishnah-peah/1'); await pg.waitForSelector('.mish');
+  await pg.goto(BASE + '/#/'); await pg.waitForSelector('#app');
+  if (only) { // sections of this book come from the site's catalog
+    const cat = await pg.evaluate(async () => (await fetch('/api/catalog')).json()).catch(() => null);
+    const b = cat && cat.books.find(x => x.id === only); if (b) BOOKS = { [only]: b.secs };
+  }
   let bad = [];
   for (const [work, secs] of Object.entries(BOOKS)) { if (only && work !== only) continue; for (const nik of [0, 1]) for (const sec of secs) {
     const key = work + '|' + sec + '|' + nik; if (out[key]) continue;
@@ -27,7 +31,14 @@ const BOOKS = { 'bavli-berakhot': dafs('2a', '64a'), 'bavli-shabbat': dafs('2a',
   } }
   await br.close();
   const keys = Object.keys(out).sort();
-  fs.writeFileSync(path.join(root, 'layouts.json'), JSON.stringify(out));
-  fs.writeFileSync(path.join(root, 'public', 'layouts.js'), 'window.DAF_LAYOUTS = ' + JSON.stringify(out) + ';\n');
+  if (!process.env.CI_LAYOUTS) {
+    fs.writeFileSync(path.join(root, 'layouts.json'), JSON.stringify(out));
+    fs.writeFileSync(path.join(root, 'public', 'layouts.js'), 'window.DAF_LAYOUTS = ' + JSON.stringify(out) + ';\n');
+  }
+  if (only) { // per-book file for R2 (layouts/<book>.json), loaded by the site on demand
+    const mine = Object.fromEntries(Object.entries(out).filter(([k]) => k.startsWith(only + '|')));
+    fs.mkdirSync(path.join(root, 'out', 'layouts'), { recursive: true });
+    fs.writeFileSync(path.join(root, 'out', 'layouts', only + '.json'), JSON.stringify(mine));
+  }
   console.log('layouts:', keys.length, 'failed:', bad.length, bad.slice(0, 10).join(','));
 })();

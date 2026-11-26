@@ -1,0 +1,91 @@
+name: Import all books to R2
+# Imports every base book of Tanakh / Mishnah / Bavli (whole books, all openly licensed mefarshim) from Sefaria's official export
+# into R2, one job per book, then rebuilds catalog.json. Re-runnable: files are overwritten.
+on:
+  workflow_dispatch:
+    inputs:
+      group:
+        description: 'Which part'
+        required: true
+        default: Tanakh
+        type: choice
+        options: [Tanakh, Mishnah, Talmud, all]
+      books:
+        description: 'Optional: only these books (JSON list, e.g. ["Yevamot","Mishnah Nedarim"]); overrides the group'
+        required: false
+        default: ''
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  plan:
+    runs-on: ubuntu-latest
+    outputs:
+      books: ${{ steps.list.outputs.books }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.12' }
+      - id: list
+        env:
+          BOOKS: ${{ inputs.books }}
+        run: |
+          if [ -n "$BOOKS" ]; then echo "books=$BOOKS" >> "$GITHUB_OUTPUT"
+          else echo "books=$(python3 scripts/import_export.py --list-books '${{ inputs.group }}')" >> "$GITHUB_OUTPUT"; fi
+
+  import:
+    needs: plan
+    runs-on: ubuntu-latest
+    timeout-minutes: 340
+    strategy:
+      fail-fast: false
+      max-parallel: 3
+      matrix:
+        book: ${{ fromJson(needs.plan.outputs.books) }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.12' }
+      - uses: actions/setup-node@v4
+        with: { node-version: '22' }
+      - name: Build section files from the Sefaria export
+        run: python3 scripts/import_export.py --book "${{ matrix.book }}" --out out
+      - name: Upload to R2
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: python3 scripts/upload_r2.py out --threads 2
+
+  catalog:
+    needs: import
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.12' }
+      - uses: actions/setup-node@v4
+        with: { node-version: '22' }
+      - name: Rebuild catalog.json from the manifests in R2
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          if [ -z "$CLOUDFLARE_ACCOUNT_ID" ]; then
+            export CLOUDFLARE_ACCOUNT_ID=$(curl -s -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" https://api.cloudflare.com/client/v4/accounts | python3 -c "import json,sys;print(json.load(sys.stdin)['result'][0]['id'])")
+          fi
+          mkdir -p cat/manifest
+          python3 scripts/import_export.py --list-books all > cat/books.json
+          python3 - <<'PY'
+          import json, re, subprocess, sys
+          sys.path.insert(0, 'scripts')
+          from import_export import catalog
+          for c in catalog():
+              wid = c['work'].replace('/', '-')
+              r = subprocess.run(['npx', '--yes', 'wrangler@4', 'r2', 'object', 'get', f'torah-world-data/manifest/{wid}.json', '--remote', '--file', f'cat/manifest/{wid}.json'], capture_output=True)
+              if r.returncode: print('no manifest yet:', wid)
+          PY
+          python3 scripts/build_catalog.py --out cat
+          npx --yes wrangler@4 r2 object put torah-world-data/catalog.json --file cat/catalog.json --content-type "application/json; charset=utf-8" --remote

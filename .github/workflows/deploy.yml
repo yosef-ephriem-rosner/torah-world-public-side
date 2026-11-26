@@ -32,3 +32,7 @@ jobs:
             export CLOUDFLARE_ACCOUNT_ID=$(curl -s -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" https://api.cloudflare.com/client/v4/accounts | python3 -c "import json,sys;print(json.load(sys.stdin)['result'][0]['id'])")
           fi
           npx wrangler deploy
+      - name: Smoke test the live site
+        run: |
+          sleep 15
+          bash scripts/smoke.sh

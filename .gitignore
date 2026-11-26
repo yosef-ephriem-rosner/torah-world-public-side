@@ -7,3 +7,7 @@ data/sql/
 data/fetch.log
 *.log
 backup*.sql
+out/
+cat/
+__pycache__/
+*.pyc

@@ -28,7 +28,8 @@ async function login(env, user) {
 }
 const s = (v, n) => String(v ?? '').slice(0, n);
 const int = v => (Number.isFinite(+v) ? Math.trunc(+v) : null);
-const WORKS = { 'tanakh-genesis': 1, 'tanakh-exodus': 1, 'mishnah-berakhot': 1, 'mishnah-peah': 1, 'bavli-berakhot': 1, 'bavli-shabbat': 1 };
+// any book id of the form <category>-<name> (tanakh-genesis, bavli-pesachim, yerushalmi-berakhot, midrash-..., halakhah-...) is valid (the data itself lives in R2; unknown ids simply 404)
+const WORKS = new Proxy({}, { get: (_, k) => (typeof k === 'string' && /^[a-z]{3,14}-[a-z0-9-]{1,60}$/.test(k) ? 1 : undefined) });
 // older D1 tables (cross-reference groups, Onkelos alignment) were keyed by the first three work ids
 const LEGACY = { 'tanakh-exodus': 'shemos', 'mishnah-berakhot': 'mishnah', 'bavli-berakhot': 'gemara' };
 
@@ -66,6 +67,32 @@ async function aiTags(env, text) {
 }
 function normTags(a) { return [...new Set((Array.isArray(a) ? a : String(a || '').split(/[,،]/)).map(x => s(x, 30).trim().toLowerCase()).filter(Boolean))].slice(0, 12); }
 
+
+// ---- sections live either as packs (packs/<book>/index.json + big .bin files, read with range requests) or as one file per section
+const packIdx = new Map(); // book id -> { t, idx } (cached per isolate for 5 minutes; idx null = book has no packs)
+async function getPackIndex(env, work) {
+  const c = packIdx.get(work); if (c && Date.now() - c.t < 300000) return c.idx;
+  const o = await env.R2.get('packs/' + work + '/index.json'); const idx = o ? await o.json() : null;
+  packIdx.set(work, { t: Date.now(), idx }); return idx;
+}
+async function getSectionDoc(env, work, sec) {
+  const idx = await getPackIndex(env, work), e = idx && idx.secs && idx.secs[sec];
+  if (e) { const o = await env.R2.get('packs/' + work + '/' + idx.files[e[0]], { range: { offset: e[1], length: e[2] } }); if (o) return await o.json(); }
+  const o = await env.R2.get('sections/' + work.replace('-', '/') + '/' + sec + '.json'); return o ? await o.json() : null;
+}
+
+// ---- links / linksin / placement: packed (linkpacks/<book>/<kind>.index.json + bin files named in the index) or one file per section
+const kindIdx = new Map();
+async function getKindIndex(env, work, kind) {
+  const k = work + '|' + kind, c = kindIdx.get(k); if (c && Date.now() - c.t < 300000) return c.idx;
+  const o = await env.R2.get('linkpacks/' + work + '/' + kind + '.index.json'); const idx = o ? await o.json() : null;
+  kindIdx.set(k, { t: Date.now(), idx }); return idx;
+}
+async function getKindDoc(env, work, kind, sec) {
+  const idx = await getKindIndex(env, work, kind), e = idx && idx.secs && idx.secs[sec];
+  if (e) { const o = await env.R2.get('linkpacks/' + work + '/' + idx.files[e[0]], { range: { offset: e[1], length: e[2] } }); if (o) return await o.json(); }
+  const o = await env.R2.get(kind + '/' + work + '/' + sec + '.json'); return o ? await o.json() : null;
+}
 const routes = [];
 const R = (m, p, f) => routes.push([m, new RegExp('^' + p.replace(/:(\w+)/g, '(?<$1>[^/]+)') + '$'), f]);
 
@@ -100,13 +127,22 @@ R('POST', '/api/me/level', async ({ req, env, u }) => {
 // ---- text
 R('GET', '/api/section', async ({ url, env }) => {
   const work = url.searchParams.get('work'), sec = url.searchParams.get('sec');
-  if (!WORKS[work] || !sec || !/^[0-9]{1,3}[ab]?$/.test(sec)) return err('bad ref');
-  const obj = await env.R2.get('sections/' + work.replace('-', '/') + '/' + sec + '.json');
-  if (!obj) return err('not found', 404);
-  const doc = await obj.json();
+  if (!WORKS[work] || !sec || !/^[0-9A-Za-z.:_-]{1,30}$/.test(sec)) return err('bad ref');
+  const [doc, pobj] = await Promise.all([getSectionDoc(env, work, sec), getKindDoc(env, work, 'placement', sec)]);
+  if (!doc) return err('not found', 404);
+  const pl = pobj || null; // corrections for commentaries whose own numbering is not the base-text segment numbering
   const segments = doc.text.segments.map((he, i) => ({ idx: i + 1, he })).filter(s => s.he);
   const comments = [];
-  for (const c of doc.commentary) for (const [idx, arr] of Object.entries(c.seg)) arr.forEach((he, n) => comments.push({ idx: +idx, who: c.who, n: n + 1, he }));
+  for (const c of doc.commentary) {
+    const mv = (pl && pl.moves && pl.moves[c.who]) || null, pg = new Set((pl && pl.page && pl.page[c.who]) || []);
+    for (const [seg, arr] of Object.entries(c.seg)) arr.forEach((he, n) => {
+      const k = seg + ':' + (n + 1);
+      if (mv && mv[k]) { if (mv[k].length) for (const t of mv[k]) comments.push({ idx: +t, who: c.who, n: n + 1, he }); else comments.push({ idx: 0, who: c.who, n: n + 1, he }); }
+      else if (pg.has(k)) comments.push({ idx: 0, who: c.who, n: n + 1, he }); // idx 0 = the whole page
+      else comments.push({ idx: +seg, who: c.who, n: n + 1, he });
+    });
+    if (Array.isArray(c.unplaced)) c.unplaced.forEach((he, n) => comments.push({ idx: 0, who: c.who, n: 1000 + n, he })); // section-level commentary (could not be tied to one line)
+  }
   comments.sort((a, b) => a.idx - b.idx || a.who.localeCompare(b.who) || a.n - b.n);
   const lw = LEGACY[work] || '-';
   const [xr, nc, al] = await env.DB.batch([
@@ -117,6 +153,27 @@ R('GET', '/api/section', async ({ url, env }) => {
   const sources = { text: { version: doc.text.version, license: doc.text.license, source: doc.text.source },
     commentary: doc.commentary.map(c => ({ who: c.who, title: c.title, version: c.version, license: c.license, source: c.source })) };
   return json({ segments, comments, xrefs: xr.results.map(r => ({ idx: r.idx, cat: r.cat, items: JSON.parse(r.items) })), noteCounts: nc.results, align: al.results, sources });
+});
+R('GET', '/api/catalog', async ({ env }) => {
+  // catalog.json (core books) + every catalog/<group>.json (other sessions add their own group files without touching the core one)
+  const books = new Map(); const add = async key => { const o = await env.R2.get(key); if (o) for (const b of (await o.json()).books || []) books.set(b.id, b); };
+  await add('catalog.json');
+  const list = await env.R2.list({ prefix: 'catalog/' });
+  for (const o of list.objects.sort((x, y) => x.key.localeCompare(y.key))) await add(o.key);
+  if (!books.size) return err('no catalog yet', 404);
+  return json({ schema: 1, books: [...books.values()] }, 200, { 'cache-control': 'public, max-age=300' });
+});
+R('GET', '/api/links', async ({ url, env }) => {
+  const work = url.searchParams.get('work'), sec = url.searchParams.get('sec');
+  if (!WORKS[work] || !sec || !/^[0-9A-Za-z.:_-]{1,30}$/.test(sec)) return err('bad ref');
+  const [a, b] = await Promise.all([getKindDoc(env, work, 'links', sec), getKindDoc(env, work, 'linksin', sec)]);
+  const out = { links: a ? a.links : [], incoming: b ? b.links : [] };
+  return json(out, 200, { 'cache-control': 'public, max-age=300' });
+});
+R('GET', '/api/layouts', async ({ url, env }) => {
+  const work = url.searchParams.get('work'); if (!WORKS[work]) return err('bad book');
+  const o = await env.R2.get('layouts/' + work + '.json'); if (!o) return json({}, 200, { 'cache-control': 'public, max-age=300' });
+  return new Response(o.body, { headers: { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'public, max-age=3600' } });
 });
 R('GET', '/api/search', async ({ url, env, u }) => {
   const q = s(url.searchParams.get('q'), 60).replace(/[֑-ׇ]/g, '').trim();

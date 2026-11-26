@@ -61,6 +61,44 @@ def norm_license(v):
     k = (v or '').strip().lower()
     return NORMAL_LICENSE.get(k), LICENSE_RANK.get(k)
 
+TOC_URL = 'https://storage.googleapis.com/sefaria-export/table_of_contents.json'
+def slug(title): return re.sub(r'[^a-z0-9]+', '-', title.lower()).strip('-')
+
+def catalog():
+    """Ordered list of base books in Tanakh / Mishnah / Bavli, from Sefaria's official table of contents."""
+    toc = fetch(TOC_URL); out = []
+    def leaves(n):
+        for c in n.get('contents', []):
+            if 'contents' in c: yield from leaves(c)
+            else: yield c
+    def add(cat, group, node):
+        for l in leaves(node):
+            title = l['title']
+            if cat == 'Tanakh': work = 'tanakh/' + slug(title); kind = 'tanakh'
+            elif cat == 'Mishnah': work = 'mishnah/' + slug(re.sub(r'^Mishnah ', '', title)); kind = 'mishnah'
+            else: work = 'bavli/' + slug(title); kind = 'talmud'
+            out.append(dict(title=title, he_title=l.get('heTitle'), cat=cat, group=group, work=work, kind=kind, order=len(out)))
+    for top in toc:
+        c = top.get('category')
+        if c == 'Tanakh':
+            for g in top['contents']:
+                if g.get('category') in ('Torah', 'Prophets', 'Writings'): add('Tanakh', g['category'], g)
+        elif c == 'Mishnah':
+            for g in top['contents']:
+                if str(g.get('category', '')).startswith('Seder '): add('Mishnah', g['category'], g)
+        elif c == 'Talmud':
+            for b in top['contents']:
+                if b.get('category') == 'Bavli':
+                    for g in b['contents']:
+                        if str(g.get('category', '')).startswith('Seder '): add('Talmud', g['category'], g)
+    return out
+
+BASE_PREF = {'Tanakh': ['Miqra according to the Masorah'], 'Mishnah': ['Torat Emet 357'], 'Talmud': ['William Davidson Edition - Vocalized Aramaic']}
+
+def sections_for(kind, text):
+    has = lambda x: any(s.strip() for s in flat(x))
+    return [amud_name(i) for i, x in enumerate(text) if has(x)] if kind == 'talmud' else [str(i + 1) for i, x in enumerate(text) if has(x)]
+
 def amud_name(i):  # Talmud arrays: index 0 = 1a, 1 = 1b, 2 = 2a ...
     return f'{i // 2 + 1}{"a" if i % 2 == 0 else "b"}'
 
@@ -103,9 +141,19 @@ def pick_version(entries, base_pref, log, label):
     return best[1] if best else None
 
 def main():
-    ap = argparse.ArgumentParser(); ap.add_argument('--scope', required=True, choices=sorted(SCOPES)); ap.add_argument('--out', default='out')
+    ap = argparse.ArgumentParser(); ap.add_argument('--scope', choices=sorted(SCOPES)); ap.add_argument('--book', help='Sefaria base title, e.g. "Shabbat" or "Mishnah Peah" or "Genesis" (whole book)'); ap.add_argument('--list-books', choices=['Tanakh', 'Mishnah', 'Talmud', 'all']); ap.add_argument('--out', default='out')
     ap.add_argument('--only-commentary', default='', help='comma list of titles to restrict (testing)')
-    a = ap.parse_args(); sc = SCOPES[a.scope]
+    a = ap.parse_args()
+    if a.list_books:
+        print(json.dumps([c['title'] for c in catalog() if a.list_books in ('all', c['cat'])])); return
+    info = None
+    if a.book:
+        info = next((c for c in catalog() if c['title'] == a.book), None)
+        if not info: sys.exit('book not in Tanakh/Mishnah/Bavli catalog: ' + a.book)
+        sc = dict(work=info['work'], kind=info['kind'], book=info['title'], cat=info['cat'], secs=None, base_pref=BASE_PREF[info['cat']])
+        a.scope = info['work'].replace('/', '-')
+    elif a.scope: sc = SCOPES[a.scope]
+    else: sys.exit('give --scope or --book')
     books = fetch(BOOKS_URL)['books']
     heb = [b for b in books if b['language'] == 'Hebrew' and b['versionTitle'] != 'merged']
     bytitle = collections.defaultdict(list)
@@ -113,6 +161,7 @@ def main():
     log = []
     base = pick_version(bytitle[sc['book']], sc['base_pref'], log, 'base')
     if not base: sys.exit('no allowed base text found: ' + json.dumps(log))
+    if sc['secs'] is None: sc['secs'] = sections_for(sc['kind'], base['text'])
     # commentaries: "<X> on <book>" (or "on Mishnah <name>") whose categories include the right category
     suffixes = (' on ' + sc['book'],) if sc['kind'] != 'mishnah' else (' on ' + sc['book'],)
     comm_titles = sorted(t for t in bytitle if t.endswith(suffixes) and sc['cat'] in bytitle[t][0]['categories'] and (sc['kind'] != 'talmud' or 'Bavli' in bytitle[t][0]['categories']))
@@ -147,7 +196,7 @@ def main():
         fn = os.path.join(a.out, 'sections', sc['work'], sec + '.json'); os.makedirs(os.path.dirname(fn), exist_ok=True)
         json.dump(doc, open(fn, 'w'), ensure_ascii=False, separators=(',', ':')); nsec += 1
     used = [{'title': c['full'], 'who': c['short'], 'version': c['version'], 'license': c['license'], 'source': c['source'], 'comments_in_scope': stats[c['short']]} for c in comms if stats[c['short']]]
-    manifest = {'scope': a.scope, 'work': sc['work'], 'generated': datetime.datetime.now(datetime.timezone.utc).isoformat(), 'sections': nsec,
+    manifest = {'scope': a.scope, 'work': sc['work'], 'book': sc['book'], 'he_title': (info or {}).get('he_title') or base.get('he_title'), 'category': sc['cat'], 'group': (info or {}).get('group'), 'order': (info or {}).get('order'), 'kind': sc['kind'], 'secs': sc['secs'], 'generated': datetime.datetime.now(datetime.timezone.utc).isoformat(), 'sections': nsec,
                 'base': {k: base[k] for k in ('title', 'version', 'license', 'source')}, 'commentaries': used, 'skipped': log,
                 'note': 'Texts come from Sefaria (https://www.sefaria.org); each keeps its own license. Non-commercial use, attribution required.'}
     json.dump(manifest, open(os.path.join(a.out, 'manifest', a.scope + '.json'), 'w'), ensure_ascii=False, indent=1)

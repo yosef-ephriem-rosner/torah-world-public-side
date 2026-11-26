@@ -1,0 +1,41 @@
+name: Watchdog
+# Runs every hour by itself (no Claude session needed):
+#  1. smoke-tests the live site (opens a GitHub issue if it is broken),
+#  2. re-runs the failed jobs of recent import / links / layout / search runs (at most 2 reruns per run, so a real bug never loops).
+on:
+  schedule:
+    - cron: '17 * * * *'
+  workflow_dispatch:
+
+permissions:
+  actions: write
+  contents: read
+  issues: write
+
+jobs:
+  heal:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Smoke test the live site
+        id: smoke
+        run: bash scripts/smoke.sh
+      - name: Open an issue if the live site is broken
+        if: ${{ failure() && steps.smoke.outcome == 'failure' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          n=$(gh issue list --state open --search "Live site smoke test failing in:title" --json number --jq 'length')
+          if [ "$n" = "0" ]; then gh issue create --title "Live site smoke test failing" --body "The hourly watchdog could not pass scripts/smoke.sh against the live site. See the failed 'Watchdog' run for the failing route."; fi
+      - name: Re-run recently failed jobs (max 2 reruns per run)
+        if: ${{ always() }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          since=$(date -u -d '8 hours ago' +%FT%TZ)
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs?status=failure&per_page=60" \
+            --jq ".workflow_runs[] | select(.created_at > \"$since\" and .run_attempt < 3 and (.name | test(\"^(Import|Build links|Precompute|Build search)\"))) | .id" |
+          while read -r id; do
+            echo "re-running failed jobs of run $id"
+            gh run rerun "$id" --failed || true
+          done
