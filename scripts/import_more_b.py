@@ -34,7 +34,7 @@ FAMILIES = {
     'tannaitic': dict(cat='midrash', cat_en='Midrash', group='Midrash Halakhah', sw=('פרשה', 'Section'), pref=[],
                       sel=lambda t, c: t in TAN),
     'aggadah': dict(cat='midrash', cat_en='Midrash', group='Midrash Aggadah', sw=('פרק', 'Chapter'), pref=['Torat Emet', 'Wikisource'],
-                    sel=lambda t, c: _is(c, 'Midrash', 'Aggadah') and 'Commentary' not in c and 'Midrash Rabbah' not in c and ' on ' not in t and not t.startswith('Learning')),
+                    sel=lambda t, c: t in ('Yalkut Shimoni on Torah', 'Yalkut Shimoni on Nach', 'Avot DeRabbi Natan', 'Avot DeRabbi Natan, Recension B') or (_is(c, 'Midrash', 'Aggadah') and 'Commentary' not in c and 'Midrash Rabbah' not in c and ' on ' not in t and not t.startswith('Learning'))),
 }
 
 def hebrew_books():

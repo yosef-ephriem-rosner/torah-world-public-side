@@ -8,7 +8,7 @@ on:
         required: true
         default: test
         type: choice
-        options: [test, mishneh-torah, shulchan-arukh, tur, chinukh, rabbah, tannaitic, aggadah, all-midrash, all-halakhah, all]
+        options: [test, mishneh-torah, shulchan-arukh, chinukh, rabbah, tannaitic, aggadah, all-midrash, all-halakhah, all]
       titles:
         description: 'Optional: only these base titles (JSON list); overrides the group'
         required: false
