@@ -41,7 +41,7 @@ const whoSort = (a, b) => whoRank(a) - whoRank(b) || a.localeCompare(b);
 const HEWHO = { Rashi: 'רש״י', Onkelos: 'אונקלוס', 'Ibn Ezra': 'אבן עזרא', Ramban: 'רמב״ן', Rashbam: 'רשב״ם', Sforno: 'ספורנו', 'Or HaChaim': 'אור החיים', Bartenura: 'ברטנורא', Rambam: 'רמב״ם', 'Tosafot Yom Tov': 'תוספות יום טוב', 'Ikar Tosafot Yom Tov': 'עיקר תוספות יום טוב', Tosafot: 'תוספות', Rashba: 'רשב״א', Ritva: 'ריטב״א', Meiri: 'מאירי' };
 const LEVELS = { student: 'Student', working_man: 'Working man (baal habayis)', avreich: 'Avreich / kollel', talmid_chacham: 'Talmid chacham', rav: 'Rav / posek', rosh_yeshiva: 'Rosh yeshiva' };
 const PROS = ['avreich', 'rav', 'talmid_chacham', 'rosh_yeshiva'];
-const secLabel = (w, s) => WORKS[w].he + ' · ' + WORKS[w].label(s);
+const secLabel = (w, s) => { w = ALIAS[w] || w; const W = WORKS[w]; return W ? W.he + ' · ' + W.label(s) : w + ' ' + s; };
 const ago = ts => { const d = Math.floor(Date.now() / 1000) - ts; return d < 60 ? 'now' : d < 3600 ? Math.floor(d / 60) + 'm' : d < 86400 ? Math.floor(d / 3600) + 'h' : Math.floor(d / 86400) + 'd'; };
 // ---------- auth
 let ME = null;
@@ -153,7 +153,7 @@ async function readPage(work, sec, sel) {
     <select id="secsel">${W.secs.map(s => `<option value="${s}" ${s === sec ? 'selected' : ''}>${W.label(s)} (${W.lab2(s)})</option>`).join('')}</select>
     <button class="ghost sm" id="next" ${i < W.secs.length - 1 ? '' : 'disabled'}>▶</button>
     <label><input type="checkbox" id="lmk" checked> markers</label><label><input type="checkbox" id="lhl" checked> highlights</label>
-    <label><input type="checkbox" id="lsb" checked> sidebar</label>${W.targum ? `<label><input type="checkbox" id="ltg" ${localStorage.targum === '1' ? 'checked' : ''}> תרגום אונקלוס</label>` : ''}${W.type === 'daf' ? `<select id="dview"><option value="page" ${localStorage.dafView !== 'live' ? 'selected' : ''}>צורת הדף · Page view</option><option value="live" ${localStorage.dafView === 'live' ? 'selected' : ''}>Live layout</option></select>` : ''}${true ? `<label><input type="checkbox" id="lnk" ${localStorage.nikud === '1' ? 'checked' : ''}> ניקוד</label>` : ''}</div>
+    <label><input type="checkbox" id="lsb" checked> sidebar</label>${W.targum ? `<label><input type="checkbox" id="ltg" ${localStorage.targum === '1' ? 'checked' : ''}> תרגום אונקלוס</label>` : ''}${W.type === 'daf' ? `<select id="dview"><option value="page" ${dafView() === 'page' ? 'selected' : ''}>צורת הדף · Printed page (fixed)</option><option value="live" ${dafView() === 'live' ? 'selected' : ''}>Adaptive layout (fits window)</option><option value="simple" ${dafView() === 'simple' ? 'selected' : ''}>Simple text (best on phones)</option></select>` : ''}${true ? `<label><input type="checkbox" id="lnk" ${localStorage.nikud === '1' ? 'checked' : ''}> ניקוד</label>` : ''}</div>
     <div class="reader" id="rd"><div><div class="card" id="text"></div></div><div class="card" id="side"></div></div>`;
   $('#prev').onclick = () => location.hash = `#/read/${work}/${W.secs[i - 1]}`;
   $('#next').onclick = () => location.hash = `#/read/${work}/${W.secs[i + 1]}`;
@@ -185,7 +185,8 @@ function segHTML(sg, num, nc, lead) {
 async function renderText() {
   const box = $('#text'); box.innerHTML = ''; box.className = 'card page ' + S.work;
   const { nc } = counts();
-  if (S.W.type === 'daf') await renderDaf(box, nc);
+  if (S.W.type === 'daf' && dafView() === 'simple') renderSimple(box, nc);
+  else if (S.W.type === 'daf') await renderDaf(box, nc);
   else if (S.W.type === 'chumash') renderChumash(box, nc);
   else box.innerHTML = S.data.segments.map(sg => `<p class="mish">${segHTML(sg, '', nc, `<b class="mnum">${gem(sg.idx)}.</b> `)}</p>`).join('');
   box.onmouseup = onSelect;
@@ -212,12 +213,18 @@ function renderChumash(box, nc) {
   }
   box.innerHTML = html + '</div>';
 }
+const dafView = () => localStorage.dafView || (innerWidth < 760 ? 'simple' : 'page');
 const PAGE_W = 1000; // design width of the tzuras hadaf; layout numbers are stored for this size and scaled proportionally to the screen
 const PAGE_MIN = 0.62; // below this the page scrolls sideways instead of shrinking further
 const NIK = /[֑-ׇ]/g;
+function renderSimple(box, nc) {
+  const nikud = localStorage.nikud === '1', strip = s => nikud ? s : s.replace(NIK, '');
+  box.innerHTML = '<div class="mut dafkey" style="text-align:center;font-size:12px">Simple text · tap a line for Rashi, Tosafot and the other mefarshim</div><div class="flow simple">' + S.data.segments.map(sg => segHTML({ idx: sg.idx, he: strip(sg.he) }, S.W.num(sg.idx), nc)).join('') + '</div>';
+  window.__dafDone = { work: S.work, sec: S.sec, nikud, view: 'simple', stored: false, scale: 1, spacers: null, height: 0 };
+}
 async function renderDaf(box, nc) {
   const { data, sec } = S, amud = sec.endsWith('a') ? 'a' : 'b';
-  const nikud = localStorage.nikud === '1', view = localStorage.dafView === 'live' ? 'live' : 'page';
+  const nikud = localStorage.nikud === '1', view = dafView() === 'live' ? 'live' : 'page';
   const strip = s => nikud ? s : s.replace(NIK, '');
   const main = data.segments.map(sg => segHTML({ idx: sg.idx, he: strip(sg.he) }, '', nc)).join('');
   const side = who => data.comments.filter(c => c.who === who).map(c => `<span class="cs" data-idx="${c.idx}" data-who="${who}">${dhBold(strip(c.he), who)}</span>`).join(' ');
@@ -301,7 +308,7 @@ function renderSide() {
       by[who].forEach(c => { const x = document.createElement('div'); x.className = 'cmt'; x.innerHTML = dhBold(c.he, who); d.append(x); }); tb.append(d);
     }
   } else if (S.tab === 'links') {
-    if (!xr.length) tb.innerHTML = '<p class="mut">No cross-references imported for this segment.</p>';
+    if (!xr.length) tb.innerHTML = '<p class="mut">No cross-reference links for this segment yet. Links for the newer books (everything except Shemos, Mishnah Berakhos and Gemara Berakhos) are still being imported and checked.</p>';
     tb.insertAdjacentHTML('beforeend', '<p class="mut" style="font-size:12px">Imported from the Sefaria link graph. Opens the source on Sefaria.</p>');
     const order = ['Commentary', 'Talmud', 'Mishnah', 'Tosefta', 'Midrash', 'Halakhah', 'Tanakh', 'Targum', 'Kabbalah', 'Chasidut', 'Musar', 'Jewish Thought', 'Responsa', 'Liturgy'];
     xr.sort((a, b) => (order.indexOf(a.cat) + 1 || 99) - (order.indexOf(b.cat) + 1 || 99)).forEach(x => {
@@ -344,10 +351,10 @@ function noteCard(n, ctx) {
    <div class="meta"><b>${isQ ? '❓ Question' : n.kind === 'answer' ? '✔ Answer' : n.kind === 'comment' ? '💬' : '📝 Note'}</b><span>${esc(n.author)}</span>
    <span class="badge ${PROS.includes(n.level) ? 'pro' : ''}" title="self-declared">${esc(LEVELS[n.level] || n.level)}</span>
    ${n.visibility !== 'public' ? `<span class="badge priv">${esc(n.visibility)}</span>` : ''}<span>${ago(n.created)}</span>${n.accepted ? '<span class="badge pro">accepted ✓</span>' : ''}${n.dups ? `<span class="badge priv">duplicate? ×${n.dups}</span>` : ''}
-   ${n.work !== S.work || n.sec !== S.sec ? `<a href="#/read/${n.work}/${n.sec}/${n.idx}">${esc(secLabel(n.work, n.sec))} · ${n.idx}</a>` : ''}</div>
+   ${(ALIAS[n.work] || n.work) !== S.work || n.sec !== S.sec ? `<a href="#/read/${ALIAS[n.work] || n.work}/${n.sec}/${n.idx}">${esc(secLabel(n.work, n.sec))} · ${n.idx}</a>` : ''}</div>
    ${n.title ? `<div><b>${esc(n.title)}</b></div>` : ''}${n.quote ? `<div class="quote">${esc(n.quote)}</div>` : ''}<div class="body-t">${esc(n.body)}</div>
    <div>${(n.tags || '').split(',').filter(Boolean).map(x => `<span class="tag">${esc(x)}</span>`).join('')}</div>
-   ${n.links?.length ? `<div class="mut" style="font-size:12px">↔ ${n.links.map(l => `<a href="#/read/${l.work}/${l.sec}/${l.idx}">${esc(WORKS[l.work].he)} ${esc(WORKS[l.work].label(l.sec))}${l.idx ? ' · ' + l.idx : ''}</a>`).join(' · ')}</div>` : ''}
+   ${n.links?.length ? `<div class="mut" style="font-size:12px">↔ ${n.links.map(l => `<a href="#/read/${ALIAS[l.work] || l.work}/${l.sec}/${l.idx}">${esc(secLabel(l.work, l.sec))}${l.idx ? ' · ' + l.idx : ''}</a>`).join(' · ')}</div>` : ''}
    <div class="acts"><span class="vote"><button data-v="1" class="${n.myvote === 1 ? 'on' : ''}">▲</button><b class="sc">${n.score}</b><button data-v="-1" class="${n.myvote === -1 ? 'on' : ''}">▼</button></span>
    <button class="ghost sm" data-a="reply">${isQ ? t('answer') : t('comment')}</button>
    ${n.replies ? `<button class="ghost sm" data-a="open">${n.replies} ${n.replies === 1 ? 'reply' : 'replies'}</button>` : ''}
@@ -403,8 +410,8 @@ async function searchPage(q) {
   $('#sq').value = q; app.innerHTML = `<h2>Search: ${esc(q)}</h2><p class="mut">…</p>`;
   try {
     const r = await api('/search?q=' + encodeURIComponent(q));
-    app.innerHTML = `<h2>Search: ${esc(q)}</h2><h3>Text (${r.text.length})</h3>` + (r.text.map(x => `<div class="card"><a href="#/read/${x.work}/${x.sec}/${x.idx}">${esc(secLabel(x.work, x.sec))} · ${x.idx}</a><div class="he">${x.he.replace(/<[^>]+>/g, '')}</div></div>`).join('') || '<p class="mut">No matches in the text.</p>')
-      + `<h3>Notes (${r.notes.length})</h3>` + (r.notes.map(n => `<div class="card"><a href="#/read/${n.work}/${n.sec}/${n.idx}">${esc(secLabel(n.work, n.sec))} · ${n.idx}</a> <span class="mut">${esc(n.author)} · ${esc(LEVELS[n.level] || n.level)}</span><div><b>${esc(n.title || '')}</b></div><div class="body-t">${esc(n.body.slice(0, 300))}</div></div>`).join('') || '<p class="mut">No matching notes.</p>');
+    app.innerHTML = `<h2>Search: ${esc(q)}</h2><p class="mut" style="font-size:13px">Text search currently covers Shemos, Mishnah Berakhos and Gemara Berakhos; notes are searched in every book. A search index for all books is coming.</p><h3>Text (${r.text.length})</h3>` + (r.text.map(x => `<div class="card"><a href="#/read/${ALIAS[x.work] || x.work}/${x.sec}/${x.idx}">${esc(secLabel(x.work, x.sec))} · ${x.idx}</a><div class="he">${x.he.replace(/<[^>]+>/g, '')}</div></div>`).join('') || '<p class="mut">No matches in the text.</p>')
+      + `<h3>Notes (${r.notes.length})</h3>` + (r.notes.map(n => `<div class="card"><a href="#/read/${ALIAS[n.work] || n.work}/${n.sec}/${n.idx}">${esc(secLabel(n.work, n.sec))} · ${n.idx}</a> <span class="mut">${esc(n.author)} · ${esc(LEVELS[n.level] || n.level)}</span><div><b>${esc(n.title || '')}</b></div><div class="body-t">${esc(n.body.slice(0, 300))}</div></div>`).join('') || '<p class="mut">No matching notes.</p>');
   } catch (e) { app.innerHTML = '<p class="err">' + esc(e.message) + '</p>'; }
 }
 // ---------- chavrusa

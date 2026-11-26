@@ -52,3 +52,8 @@ sup.mk{font:11px system-ui;margin:0 2px;vertical-align:super;direction:ltr;displ
 
 .pagewrap.fixedpage{overflow-x:auto}.pagewrap #daf{margin:0 auto}
 .pagewrap.fixedpage #daf,.pagewrap #daf{background:#fffdf7}#dview{max-width:190px}
+
+@media(max-width:900px){.reader{grid-template-columns:minmax(0,1fr)}#side{position:static;max-height:none}main{padding:10px}.card.page{padding:12px 8px}}
+.card.page{overflow-x:auto;max-width:100%}.filters{grid-template-columns:repeat(auto-fit,minmax(150px,1fr))}
+.flow.simple{font-size:23px;line-height:2}.simple .sg{display:inline}
+@media(max-width:600px){header{gap:6px;padding:6px 10px}nav{gap:10px;flex-wrap:wrap}#sform input{width:110px}.bar h2{font-size:21px}.flow{font-size:21px}}
