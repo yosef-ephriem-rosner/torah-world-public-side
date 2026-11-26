@@ -149,7 +149,10 @@ def main_title(a):
     for b in books: by[b['title']].append(b)
     log = []
     cands = load_versions(by[title], log)
-    if not cands: sys.exit('no allowed base version: ' + json.dumps(log, ensure_ascii=False))
+    if not cands:  # nothing licensed: log it and finish cleanly (no catalog entry)
+        os.makedirs(os.path.join(a.out, 'manifest'), exist_ok=True)
+        json.dump({'id': f['cat'] + '-' + slug(title), 'book': title, 'skipped': log, 'note': 'no allowed license, not imported'}, open(os.path.join(a.out, 'manifest', 'skipped-' + slug(title) + '.json'), 'w'), ensure_ascii=False, indent=1)
+        print('skipped (license):', title); return
     # commentaries
     ctitles = sorted(t for t in by if t.endswith(' on ' + title))
     comm = {}

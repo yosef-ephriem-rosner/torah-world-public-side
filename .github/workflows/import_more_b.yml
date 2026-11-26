@@ -50,14 +50,18 @@ jobs:
       - uses: actions/setup-python@v5
         with: { python-version: '3.12' }
       - name: Build section files from the Sefaria export
-        run: python3 scripts/import_more_b.py --title "${{ matrix.title }}" --out out
+        env:
+          TITLE: ${{ matrix.title }}
+        run: python3 scripts/import_more_b.py --title "$TITLE" --out out
       - name: Upload to R2
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: python3 scripts/upload_r2.py out --threads 2
       - name: Keep manifest for the catalog job
-        run: echo "n=$(echo '${{ matrix.title }}' | tr -c 'A-Za-z0-9' '_')" >> "$GITHUB_ENV"
+        env:
+          TITLE: ${{ matrix.title }}
+        run: echo "n=$(printf '%s' "$TITLE" | tr -c 'A-Za-z0-9' '_')" >> "$GITHUB_ENV"
       - uses: actions/upload-artifact@v4
         with:
           name: manifest-${{ env.n }}
