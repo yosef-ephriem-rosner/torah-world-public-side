@@ -67,6 +67,19 @@ async function aiTags(env, text) {
 }
 function normTags(a) { return [...new Set((Array.isArray(a) ? a : String(a || '').split(/[,،]/)).map(x => s(x, 30).trim().toLowerCase()).filter(Boolean))].slice(0, 12); }
 
+
+// ---- sections live either as packs (packs/<book>/index.json + big .bin files, read with range requests) or as one file per section
+const packIdx = new Map(); // book id -> { t, idx } (cached per isolate for 5 minutes; idx null = book has no packs)
+async function getPackIndex(env, work) {
+  const c = packIdx.get(work); if (c && Date.now() - c.t < 300000) return c.idx;
+  const o = await env.R2.get('packs/' + work + '/index.json'); const idx = o ? await o.json() : null;
+  packIdx.set(work, { t: Date.now(), idx }); return idx;
+}
+async function getSectionDoc(env, work, sec) {
+  const idx = await getPackIndex(env, work), e = idx && idx.secs && idx.secs[sec];
+  if (e) { const o = await env.R2.get('packs/' + work + '/' + idx.files[e[0]], { range: { offset: e[1], length: e[2] } }); if (o) return await o.json(); }
+  const o = await env.R2.get('sections/' + work.replace('-', '/') + '/' + sec + '.json'); return o ? await o.json() : null;
+}
 const routes = [];
 const R = (m, p, f) => routes.push([m, new RegExp('^' + p.replace(/:(\w+)/g, '(?<$1>[^/]+)') + '$'), f]);
 
@@ -102,9 +115,8 @@ R('POST', '/api/me/level', async ({ req, env, u }) => {
 R('GET', '/api/section', async ({ url, env }) => {
   const work = url.searchParams.get('work'), sec = url.searchParams.get('sec');
   if (!WORKS[work] || !sec || !/^[0-9A-Za-z.:_-]{1,30}$/.test(sec)) return err('bad ref');
-  const [obj, pobj] = await Promise.all([env.R2.get('sections/' + work.replace('-', '/') + '/' + sec + '.json'), env.R2.get('placement/' + work + '/' + sec + '.json')]);
-  if (!obj) return err('not found', 404);
-  const doc = await obj.json();
+  const [doc, pobj] = await Promise.all([getSectionDoc(env, work, sec), env.R2.get('placement/' + work + '/' + sec + '.json')]);
+  if (!doc) return err('not found', 404);
   const pl = pobj ? await pobj.json() : null; // corrections for commentaries whose own numbering is not the base-text segment numbering
   const segments = doc.text.segments.map((he, i) => ({ idx: i + 1, he })).filter(s => s.he);
   const comments = [];
