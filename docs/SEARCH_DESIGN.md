@@ -1,0 +1,28 @@
+# Search design (static inverted index in R2)
+
+**Goal**: full-text search over all books (base text first, then commentary) with no D1 writes and tiny Worker CPU. Notes stay in D1 (unchanged). The old D1 `segments LIKE` search remains as fallback when `search/manifest.json` does not exist (or `?legacy=1`).
+
+## Pipeline (`.github/workflows/search_index.yml`, manual)
+1. `plan` – lists books without `search/_partial/<book-id>.json.gz` in R2 (`force` rebuilds; `extra` also adds non-Sefaria books found in `catalog/*.json`).
+2. `partial` (matrix, `max-parallel: 2`, resumable) – builds the section files with the same `import_export.py` code as the site (so segment indexes are identical), then `build_search_index.py partial` -> one gzip JSON per book (term -> delta-coded local segment ids; commentary term -> (segment, commentator)). Non-Sefaria books: `fetch-r2` downloads their section files at ~3 req/s (Cloudflare REST limit), then the same `partial`.
+3. `merge` – downloads all partials (1 REST GET per book), assigns global segment ids (books sorted by id => each category is a contiguous id range), writes `search/v<stamp>/**.bin` shards and finally `search/manifest.json` (switch is atomic; old versions can be deleted later). Upload: `scripts/upload_search.py --threads 2` (thin wrapper around `upload_r2.call`, because `upload_r2.py` only uploads `*.json`).
+Adding a book later = run the workflow again (only the new partial is built, merge rebuilds shards from all partials).
+
+## Normalisation (identical in Python `build_search_index.py` and `worker/search.js`)
+strip HTML tags -> delete nikud/cantillation (U+0591–05BD, 05BF, 05C1/2/4/5/7), `" ' ׳ ״` and ZWJ -> fold final letters (ך ם ן ף ץ) -> every other non-Hebrew-letter char is a separator (maqaf, punctuation, Latin, digits). Words of 2–24 letters are indexed.
+
+## Index files (R2)
+- `search/manifest.json` (~100–500 KB): `v`, `cm` (commentator multiplier, power of 2), `who[{id,name,he}]`, `books[{id,lo,hi,secs[],n[]}]` (section names + segment counts => global segment id <-> book/sec/idx), `split{family:[keys]}`.
+- Global segment id (gid) = id of a **base-text segment** (verse / mishnah / Gemara segment). Commentary hits point to the base segment they comment on, with the commentator: `value = gid*cm + commentatorId`.
+- Four families under `search/v<stamp>/`: `b` (base words), `bx` (base, prefix-expanded), `c` (commentary), `cx`. `x` families index every word under itself **and** with 1 or 2 leading prefix letters ו ה ב כ ל מ ש removed (remainder ≥ 2 letters), so "ignore prefixes" is a single lookup (query `שמים` also finds `ושמים`, `בשמים`, `והשמים`).
+- Shard = first 2 letters of the term (22 letters -> `a..v`, e.g. `ab.bin`); a 2-letter key whose shard exceeds ~300 KB is split by 3 letters (`split`, 2-letter terms go to `xy_.bin`).
+- `.bin` layout (little endian): `TWS1`, u32 nTerms, u32 dictBytes, dictionary (terms as bytes 1..22, NUL-terminated, sorted), u32 offsets[nTerms+1], postings. A posting list = varint count; if ≤128: first value + varint deltas; else skip table (per 128-block: delta of first value, byte length) followed by the blocks (varint deltas). The Worker never decodes a whole big list: it leap-frogs (rarest term first, `seek` through the skip table).
+
+## Query (`worker/search.js`, called by `/api/search`)
+Params: `q` (`"…"` or `phrase=1` = exact phrase), `pref=1`, `layer=base|comm|all` (all = base first, then commentary), `book=id,id`, `cat=tanakh,…`, `who=Rashi,…`, `limit`≤30, `after=<cursor>`, `legacy=1`. Steps: manifest (cached in the isolate 5 min) -> fetch one shard per query word (isolate LRU cache 48 MB) -> leap-frog intersection in gid order restricted to the book/category ranges (+ commentator filter) -> candidates are verified against the real section JSON from R2 (`env.R2.get`, no REST limit; exact phrase = adjacent words, prefix option = same rule as the index) and a highlighted snippet (`<mark>`) is made. Results are in reading order; cursor `b:<value>`/`c:<value>` gives "more results". Verification caps: 14 section files and 4000 candidates per request (response has `more:true` and a cursor if it stopped early).
+
+## Size / time / limits (estimates, measured numbers added after the first full run)
+- Measured locally (Bavli Berakhot + Exodus, 3 959 base segments, 46 commentaries): 9.6 MB total (b 0.3, bx 0.4, c 3.7, cx 5.2 MB) ≈ 2.4 KB per base segment, dominated by commentary. For ~100k base segments in the 139 books: **≈ 0.25–0.4 GB**; later categories (halakhah, midrash…) add roughly 1 MB per 400 segments. Far below R2's free 10 GB; ≈ 2 000 objects per version (REST upload ≈ 2000 PUT, a few minutes at 2 threads).
+- Build: import per book ≈ 10 s–10 min (download from the GCS export dominates), partial ≈ seconds; merge needs ~2–4 GB RAM and ~10 min. Everything runs in Actions; no D1 writes at all.
+- Worker CPU per query (local node, 2 books): 1–20 ms wall incl. parsing the section JSONs; the verification step (JSON.parse of ≤10 section files of 20–200 KB) is the main CPU cost, so on the free plan (10 ms CPU) queries returning 10 hits from 10 different Bavli amudim may exceed the limit; results from one section are cheap. Real latency on the live site is measured after merge. If the free limit is hit: lower `limit` (client param), or paid plan ($5/month, 30 s CPU), or store short plain-text copies per section (extra index, no commentary) to avoid parsing big files.
+- Limits: no ranking (reading order); no fuzzy/morphological search beyond the 7 prefixes; words of 1 letter are not indexed (still verified inside phrases); commentary hit = same commentator + all words in one comment; ids use 53-bit-safe numbers (fine up to ~10^9 base segments × cm).

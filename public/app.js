@@ -486,11 +486,28 @@ async function noteModal(a) {
 }
 // ---------- search
 async function searchPage(q) {
+  const o = window._so || (window._so = { layer: 'all', pref: false, phrase: false, cat: '', book: '', who: '' });
+  const bookOpts = Object.keys(WORKS || {}).map(id => `<option value="${esc(id)}">${esc(WORKS[id].he || id)}</option>`).join('');
+  const card = x => `<div class="card"><a href="#/read/${ALIAS[x.work] || x.work}/${x.sec}/${x.idx}">${esc(secLabel(x.work, x.sec))} · ${x.idx}</a>${x.kind === 'comm' ? ` <span class="pill">${esc(x.who)}</span>` : ''}<div class="he">${x.kind ? x.he : esc(String(x.he).replace(/<[^>]+>/g, ''))}</div></div>`;
+  async function run(after) {
+    const qs = new URLSearchParams({ q, layer: o.layer }); if (o.pref) qs.set('pref', '1'); if (o.phrase) qs.set('phrase', '1');
+    if (o.cat) qs.set('cat', o.cat); if (o.book) qs.set('book', o.book); if (o.who) qs.set('who', o.who); if (after) qs.set('after', after);
+    return api('/search?' + qs);
+  }
   $('#sq').value = q; app.innerHTML = `<h2>Search: ${esc(q)}</h2><p class="mut">…</p>`;
   try {
-    const r = await api('/search?q=' + encodeURIComponent(q));
-    app.innerHTML = `<h2>Search: ${esc(q)}</h2><p class="mut" style="font-size:13px">Text search currently covers Shemos, Mishnah Berakhos and Gemara Berakhos; notes are searched in every book. A search index for all books is coming.</p><h3>Text (${r.text.length})</h3>` + (r.text.map(x => `<div class="card"><a href="#/read/${ALIAS[x.work] || x.work}/${x.sec}/${x.idx}">${esc(secLabel(x.work, x.sec))} · ${x.idx}</a><div class="he">${x.he.replace(/<[^>]+>/g, '')}</div></div>`).join('') || '<p class="mut">No matches in the text.</p>')
-      + `<h3>Notes (${r.notes.length})</h3>` + (r.notes.map(n => `<div class="card"><a href="#/read/${ALIAS[n.work] || n.work}/${n.sec}/${n.idx}">${esc(secLabel(n.work, n.sec))} · ${n.idx}</a> <span class="mut">${esc(n.author)} · ${esc(LEVELS[n.level] || n.level)}</span><div><b>${esc(n.title || '')}</b></div><div class="body-t">${esc(n.body.slice(0, 300))}</div></div>`).join('') || '<p class="mut">No matching notes.</p>');
+    const r = await run('');
+    app.innerHTML = `<h2>Search: ${esc(q)}</h2>
+      <div class="card" style="font-size:13px"><div class="row"><label>In</label><select id="so-l"><option value="all">text + commentary</option><option value="base">text only</option><option value="comm">commentary only</option></select>
+      <select id="so-c"><option value="">all categories</option><option value="tanakh">Tanakh</option><option value="mishnah">Mishnah</option><option value="bavli">Talmud Bavli</option><option value="yerushalmi">Yerushalmi</option><option value="tosefta">Tosefta</option><option value="midrash">Midrash</option><option value="halakhah">Halakhah</option><option value="kabbalah">Kabbalah</option><option value="chasidut">Chasidut</option><option value="musar">Musar</option><option value="liturgy">Liturgy</option></select>
+      <select id="so-b"><option value="">all books</option>${bookOpts}</select><input id="so-w" placeholder="commentator (e.g. Rashi)" style="max-width:170px" value="${esc(o.who)}"></div>
+      <div class="row"><label><input type="checkbox" id="so-p" ${o.pref ? 'checked' : ''}> ignore prefixes (ו ה ב כ ל מ ש)</label><label><input type="checkbox" id="so-x" ${o.phrase ? 'checked' : ''}> exact phrase</label><button class="sm" id="so-g">Search</button><span class="mut">Nikud, trop, punctuation and final letters are ignored.</span></div></div>
+      <h3>Text &amp; commentary (${r.text.length}${r.more ? '+' : ''})</h3><div id="so-r">${r.text.map(card).join('') || '<p class="mut">No matches in the text.</p>'}</div>${r.more ? '<button class="ghost" id="so-m">More results</button>' : ''}
+      <h3>Notes (${r.notes.length})</h3>` + (r.notes.map(n => `<div class="card"><a href="#/read/${ALIAS[n.work] || n.work}/${n.sec}/${n.idx}">${esc(secLabel(n.work, n.sec))} · ${n.idx}</a> <span class="mut">${esc(n.author)} · ${esc(LEVELS[n.level] || n.level)}</span><div><b>${esc(n.title || '')}</b></div><div class="body-t">${esc(n.body.slice(0, 300))}</div></div>`).join('') || '<p class="mut">No matching notes.</p>');
+    $('#so-l').value = o.layer; $('#so-c').value = o.cat; $('#so-b').value = o.book;
+    $('#so-g').onclick = () => { o.layer = $('#so-l').value; o.cat = $('#so-c').value; o.book = $('#so-b').value; o.who = $('#so-w').value.trim(); o.pref = $('#so-p').checked; o.phrase = $('#so-x').checked; searchPage(q); };
+    const mb = $('#so-m'); let nxt = r.next;
+    if (mb) mb.onclick = async () => { mb.disabled = true; try { const r2 = await run(nxt); $('#so-r').insertAdjacentHTML('beforeend', r2.text.map(card).join('')); nxt = r2.next; if (!r2.more) mb.remove(); else mb.disabled = false; } catch (e) { toast(e.message); mb.disabled = false; } };
   } catch (e) { app.innerHTML = '<p class="err">' + esc(e.message) + '</p>'; }
 }
 // ---------- chavrusa
