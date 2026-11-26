@@ -1,0 +1,85 @@
+name: Import more B (Midrash + Halakhah)
+# Complex-schema works from Sefaria's official export -> R2 (sections/, manifest/, catalog/midrash.json, catalog/halakhah.json).
+on:
+  workflow_dispatch:
+    inputs:
+      group:
+        description: 'Family'
+        required: true
+        default: test
+        type: choice
+        options: [test, mishneh-torah, shulchan-arukh, chinukh, rabbah, tannaitic, aggadah, all-midrash, all-halakhah, all]
+      titles:
+        description: 'Optional: only these base titles (JSON list); overrides the group'
+        required: false
+        default: ''
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  plan:
+    runs-on: ubuntu-latest
+    outputs:
+      titles: ${{ steps.list.outputs.titles }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.12' }
+      - id: list
+        env:
+          TITLES: ${{ inputs.titles }}
+          GROUP: ${{ inputs.group }}
+        run: |
+          if [ -n "$TITLES" ]; then echo "titles=$TITLES" >> "$GITHUB_OUTPUT"
+          elif [ "$GROUP" = test ]; then echo 'titles=["Mishneh Torah, Sabbath","Bereshit Rabbah"]' >> "$GITHUB_OUTPUT"
+          else echo "titles=$(python3 scripts/import_more_b.py --list "$GROUP")" >> "$GITHUB_OUTPUT"; fi
+
+  import:
+    needs: plan
+    runs-on: ubuntu-latest
+    timeout-minutes: 340
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        title: ${{ fromJson(needs.plan.outputs.titles) }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.12' }
+      - name: Build section files from the Sefaria export
+        run: python3 scripts/import_more_b.py --title "${{ matrix.title }}" --out out
+      - name: Upload to R2
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: python3 scripts/upload_r2.py out --threads 2
+      - name: Keep manifest for the catalog job
+        run: echo "n=$(echo '${{ matrix.title }}' | tr -c 'A-Za-z0-9' '_')" >> "$GITHUB_ENV"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: manifest-${{ env.n }}
+          path: out/manifest
+
+  catalog:
+    needs: import
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.12' }
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: manifest-*
+          path: manifests
+          merge-multiple: true
+      - name: Write catalog/midrash.json and catalog/halakhah.json (merged with the existing ones) and upload
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          python3 scripts/import_more_b.py --build-catalog manifests --out catout
+          python3 scripts/upload_r2.py catout --threads 1
