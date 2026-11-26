@@ -120,7 +120,8 @@ function dhBold(html, who) {
 
 // ---------- catalog: the list of books comes from R2 (catalog.json); the six built-in books are the fallback
 const HEGROUP = { Torah: 'תורה', Prophets: 'נביאים', Writings: 'כתובים', 'Seder Zeraim': 'סדר זרעים', 'Seder Moed': 'סדר מועד', 'Seder Nashim': 'סדר נשים', 'Seder Nezikin': 'סדר נזיקין', 'Seder Kodashim': 'סדר קדשים', 'Seder Tahorot': 'סדר טהרות' };
-const CATS = [['Tanakh', 'Tanach · תנ״ך'], ['Mishnah', 'Mishna · משנה'], ['Talmud', 'Gemara · גמרא']];
+const CAT_TITLES = { Tanakh: 'Tanach · תנ״ך', Mishnah: 'Mishna · משנה', Talmud: 'Gemara · גמרא', Yerushalmi: 'Yerushalmi · ירושלמי', Tosefta: 'Tosefta · תוספתא', Midrash: 'Midrash · מדרש', Halakhah: 'Halakhah · הלכה', Kabbalah: 'Kabbalah · קבלה', Chasidut: 'Chasidut · חסידות', Musar: 'Musar · מוסר', Liturgy: 'Liturgy · תפילה' };
+function catList() { const seen = []; for (const w of Object.values(WORKS)) if (!seen.includes(w.cat)) seen.push(w.cat); const base = ['Tanakh', 'Mishnah', 'Talmud']; return [...base.filter(c => seen.includes(c)), ...seen.filter(c => !base.includes(c))].map(c => [c, CAT_TITLES[c] || c]); }
 async function loadCatalog() {
   try {
     const cat = await (await fetch('/api/catalog')).json(); if (!cat.books || !cat.books.length) return;
@@ -128,7 +129,7 @@ async function loadCatalog() {
     for (const b of cat.books) {
       const daf = b.type === 'daf';
       WORKS[b.id] = { cat: b.cat, group: b.group, order: b.order, he: (b.cat === 'Talmud' ? 'גמרא ' : '') + b.he, en: (b.cat === 'Talmud' ? 'Gemara ' : '') + b.title, type: b.type, secs: b.secs,
-        label: daf ? dafLabel : chapLabel, lab2: daf ? (s => 'Daf ' + s) : (s => 'Chapter ' + s), num: daf ? (i => i) : (i => gem(i)), targum: b.id === 'tanakh-exodus', commentaries: b.commentaries };
+        label: daf ? dafLabel : (s => (b.secLabels && b.secLabels[s]) || ((b.secWord || 'פרק') + ' ' + (/^\d+$/.test(s) ? gem(+s) : s))), lab2: daf ? (s => 'Daf ' + s) : (s => (b.secWordEn || 'Chapter') + ' ' + s), num: daf ? (i => i) : (i => gem(i)), targum: b.id === 'tanakh-exodus', commentaries: b.commentaries };
     }
   } catch { /* keep the built-in books */ }
 }
@@ -139,7 +140,7 @@ function booksByCat() {
 }
 function buildMenu() {
   const bc = booksByCat(), drop = $('.menu .drop'); if (!drop) return;
-  drop.innerHTML = CATS.filter(([c]) => bc[c]).map(([c, title]) => `<div class="col"><b>${title}</b>${Object.entries(bc[c]).map(([g, list]) => `<div class="grp">${HEGROUP[g] || g}</div>${list.map(([id, w]) => `<a href="#/read/${id}/${w.secs[0]}">${esc(w.he.replace(/^גמרא |^משנה /, ''))}</a>`).join('')}`).join('')}</div>`).join('');
+  drop.innerHTML = catList().filter(([c]) => bc[c]).map(([c, title]) => `<div class="col"><b>${title}</b>${Object.entries(bc[c]).map(([g, list]) => `<div class="grp">${HEGROUP[g] || g}</div>${list.map(([id, w]) => `<a href="#/read/${id}/${w.secs[0]}">${esc(w.he.replace(/^גמרא |^משנה /, ''))}</a>`).join('')}`).join('')}</div>`).join('');
 }
 const layoutsLoaded = {};
 async function ensureLayouts(work) {
@@ -195,7 +196,7 @@ $('#sform').onsubmit = e => { e.preventDefault(); const q = $('#sq').value.trim(
 function home() {
   const bc = booksByCat();
   app.innerHTML = `<div class="hero"><h1>עולם התורה</h1><p class="mut">Learn the text. Add your notes and questions right on the words. See the mefarshim and links beside it.</p></div>
-  ${CATS.filter(([c]) => bc[c]).map(([c, title]) => `<h3 style="margin:18px 0 4px">${title}</h3>${Object.entries(bc[c]).map(([g, list]) => `<div class="mut" style="margin:8px 0 2px;font-size:13px">${HEGROUP[g] || g}</div><div class="chips">${list.map(([id, w]) => `<a class="chip" href="#/read/${id}/${w.secs[0]}">${esc(w.he.replace(/^גמרא |^משנה /, ''))}</a>`).join('')}</div>`).join('')}`).join('')}
+  ${catList().filter(([c]) => bc[c]).map(([c, title]) => `<h3 style="margin:18px 0 4px">${title}</h3>${Object.entries(bc[c]).map(([g, list]) => `<div class="mut" style="margin:8px 0 2px;font-size:13px">${HEGROUP[g] || g}</div><div class="chips">${list.map(([id, w]) => `<a class="chip" href="#/read/${id}/${w.secs[0]}">${esc(w.he.replace(/^גמרא |^משנה /, ''))}</a>`).join('')}</div>`).join('')}`).join('')}
   <h3 style="margin:18px 0 4px">חברותא</h3><div class="grid"><a class="card tile" href="#/chavrusa"><b>חברותא</b><div class="mut">Find a learning partner — now or scheduled</div></a></div>
   <div class="card mut" style="font-size:13px"><b>How it works.</b> Click any verse/line to open its mefarshim, cross-references and the community notes. Select words to attach a note or a question to exactly those words. Notes can be private, public, professionals-only, or group-only. Anyone can answer, comment and vote. Every text and commentary shows its source and license under the page.</div>`;
 }

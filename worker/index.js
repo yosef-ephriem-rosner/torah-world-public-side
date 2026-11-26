@@ -28,8 +28,8 @@ async function login(env, user) {
 }
 const s = (v, n) => String(v ?? '').slice(0, n);
 const int = v => (Number.isFinite(+v) ? Math.trunc(+v) : null);
-// any book id of the form tanakh-<name> / mishnah-<name> / bavli-<name> is valid (the data itself lives in R2; unknown ids simply 404)
-const WORKS = new Proxy({}, { get: (_, k) => (typeof k === 'string' && /^(tanakh|mishnah|bavli)-[a-z0-9-]{1,40}$/.test(k) ? 1 : undefined) });
+// any book id of the form <category>-<name> (tanakh-genesis, bavli-pesachim, yerushalmi-berakhot, midrash-..., halakhah-...) is valid (the data itself lives in R2; unknown ids simply 404)
+const WORKS = new Proxy({}, { get: (_, k) => (typeof k === 'string' && /^[a-z]{3,14}-[a-z0-9-]{1,60}$/.test(k) ? 1 : undefined) });
 // older D1 tables (cross-reference groups, Onkelos alignment) were keyed by the first three work ids
 const LEGACY = { 'tanakh-exodus': 'shemos', 'mishnah-berakhot': 'mishnah', 'bavli-berakhot': 'gemara' };
 
@@ -101,7 +101,7 @@ R('POST', '/api/me/level', async ({ req, env, u }) => {
 // ---- text
 R('GET', '/api/section', async ({ url, env }) => {
   const work = url.searchParams.get('work'), sec = url.searchParams.get('sec');
-  if (!WORKS[work] || !sec || !/^[0-9]{1,3}[ab]?$/.test(sec)) return err('bad ref');
+  if (!WORKS[work] || !sec || !/^[0-9A-Za-z.:_-]{1,30}$/.test(sec)) return err('bad ref');
   const [obj, pobj] = await Promise.all([env.R2.get('sections/' + work.replace('-', '/') + '/' + sec + '.json'), env.R2.get('placement/' + work + '/' + sec + '.json')]);
   if (!obj) return err('not found', 404);
   const doc = await obj.json();
@@ -129,16 +129,13 @@ R('GET', '/api/section', async ({ url, env }) => {
   return json({ segments, comments, xrefs: xr.results.map(r => ({ idx: r.idx, cat: r.cat, items: JSON.parse(r.items) })), noteCounts: nc.results, align: al.results, sources });
 });
 R('GET', '/api/catalog', async ({ env }) => {
-  const o = await env.R2.get('catalog.json'); if (!o) return err('no catalog yet', 404);
-  return new Response(o.body, { headers: { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'public, max-age=300' } });
-});
-R('GET', '/api/links', async ({ url, env }) => {
-  const work = url.searchParams.get('work'), sec = url.searchParams.get('sec');
-  if (!WORKS[work] || !sec || !/^[0-9]{1,3}[ab]?$/.test(sec)) return err('bad ref');
-  const key = work + '/' + sec + '.json'; // links/<book-id>/<sec>.json (dashed book id, unlike sections/)
-  const [a, b] = await Promise.all([env.R2.get('links/' + key), env.R2.get('linksin/' + key)]);
-  const out = { links: a ? (await a.json()).links : [], incoming: b ? (await b.json()).links : [] };
-  return json(out, 200, { 'cache-control': 'public, max-age=300' });
+  // catalog.json (core books) + every catalog/<group>.json (other sessions add their own group files without touching the core one)
+  const books = new Map(); const add = async key => { const o = await env.R2.get(key); if (o) for (const b of (await o.json()).books || []) books.set(b.id, b); };
+  await add('catalog.json');
+  const list = await env.R2.list({ prefix: 'catalog/' });
+  for (const o of list.objects.sort((x, y) => x.key.localeCompare(y.key))) await add(o.key);
+  if (!books.size) return err('no catalog yet', 404);
+  return json({ schema: 1, books: [...books.values()] }, 200, { 'cache-control': 'public, max-age=300' });
 });
 R('GET', '/api/layouts', async ({ url, env }) => {
   const work = url.searchParams.get('work'); if (!WORKS[work]) return err('bad book');
