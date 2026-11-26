@@ -60,3 +60,4 @@ sup.mk{font:11px system-ui;margin:0 2px;vertical-align:super;direction:ltr;displ
 
 .drop{max-height:72vh;overflow:auto;flex-wrap:wrap;width:min(980px,92vw)}.drop .col{min-width:210px;max-width:300px}.drop .grp{font-size:12px;color:var(--mut);margin:8px 0 2px;border-bottom:1px solid var(--line)}
 .chips{display:flex;flex-wrap:wrap;gap:6px}.chip{display:inline-block;padding:3px 12px;border:1px solid var(--line);border-radius:14px;background:#fff;text-decoration:none;color:var(--ink);font-family:"Frank Ruhl Libre",serif;font-size:17px}.chip:hover{border-color:var(--acc);background:#f2f7fc}
+.xi.site{border-color:var(--acc);background:#f2f7fc}.chipbox{display:flex;flex-wrap:wrap;gap:4px}

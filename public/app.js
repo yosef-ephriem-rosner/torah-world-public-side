@@ -147,6 +147,38 @@ async function ensureLayouts(work) {
   try { const l = await (await fetch('/api/layouts?work=' + work)).json(); window.DAF_LAYOUTS = Object.assign(window.DAF_LAYOUTS || {}, l); } catch { }
 }
 
+
+// ---------- connections (links) from R2: links/<book>/<sec>.json and linksin/<book>/<sec>.json
+const LINK_TYPES = [['quotation', 'Quotations (pesukim, mishnayos, gemara)'], ['parallel', 'Parallel sources'], ['halakhah', 'Halakhah'], ['midrash', 'Midrash'], ['commentary', 'Commentary in other works'], ['suggested', 'Suggested connections']];
+function linkTarget(t) {
+  if (!t) return null;
+  if (t.work && WORKS[ALIAS[t.work] || t.work]) { const id = ALIAS[t.work] || t.work; return { href: `#/read/${id}/${t.sec}${t.idx ? '/' + t.idx : ''}`, label: secLabel(id, t.sec) + (t.idx ? ' · ' + t.idx : ''), site: true }; }
+  if (t.sefaria) return { href: 'https://www.sefaria.org/' + encodeURIComponent(t.sefaria.replace(/ /g, '_')) + '?lang=he', label: t.sefaria.length > 64 ? t.sefaria.slice(0, 62) + '…' : t.sefaria, site: false };
+  return t.work ? { href: null, label: `${t.work} ${t.sec || ''}${t.idx ? ':' + t.idx : ''}`, site: false } : null;
+}
+function renderLinksTab(tb, sel) {
+  const L = S.links || { links: [], incoming: [] }, noise = l => { const s = (l.to && l.to.sefaria) || (l.from && l.from.sefaria) || ''; return /Dictionary|Jastrow|Footnotes to the English|Lexicon|Klein Dictionary/i.test(s); }, okc = l => (l.confidence ?? 1) >= 0.6 && !noise(l);
+  const mine = L.links.filter(l => (l.from && (l.from.idx || 0)) === sel && okc(l));
+  const inc = L.incoming.filter(l => ((l.to && l.to.idx) || 0) === sel && okc(l)).map(l => ({ ...l, _inc: true, _tgt: l.from }));
+  const all = [...mine.map(l => ({ ...l, _tgt: l.to })), ...inc];
+  if (!all.length) return false;
+  tb.insertAdjacentHTML('beforeend', '<p class="mut" style="font-size:12px">Connections from Sefaria\'s official links and from word-matching. “auto” = found by matching, not yet reviewed. ← marks a connection that points TO this line from elsewhere.</p>');
+  for (const [type, title] of LINK_TYPES) {
+    const items = all.filter(l => l.type === type); if (!items.length) continue;
+    items.sort((a, b) => (linkTarget(b._tgt)?.site ? 1 : 0) - (linkTarget(a._tgt)?.site ? 1 : 0) || (b.confidence || 0) - (a.confidence || 0));
+    const box = h(`<div><div class="xcat">${title} <span class="mut">(${items.length})</span></div><div class="chipbox"></div></div>`), cb = $('.chipbox', box);
+    items.forEach((l, i) => {
+      const g = linkTarget(l._tgt); if (!g) return;
+      const tag = (l.source === 'model' ? ' <i class="mut">suggested</i>' : (l.source === 'string-match' ? ' <i class="mut">auto</i>' : '')) + (l._inc ? ' ←' : '');
+      const el = g.href ? `<a class="xi ${g.site ? 'site' : ''}" ${g.site ? '' : 'target="_blank" rel="noopener"'} href="${esc(g.href)}" title="${esc(l.note || '')}">${esc(g.label)}${tag}</a>` : `<span class="xi" title="${esc(l.note || '')}">${esc(g.label)}${tag}</span>`;
+      const node = h(el); if (i >= 14) node.hidden = true; cb.append(node);
+    });
+    if (items.length > 14) { const more = h(`<button class="ghost sm">show all ${items.length}</button>`); more.onclick = () => { $$('a,span', cb).forEach(x => x.hidden = false); more.remove(); }; box.append(more); }
+    tb.append(box);
+  }
+  return true;
+}
+
 // ---------- router
 const app = $('#app');
 function route() {
@@ -177,7 +209,8 @@ async function readPage(work, sec, sel) {
   let data; try { data = await api(`/section?work=${work}&sec=${encodeURIComponent(sec)}`); } catch (e) { if (my === navId) app.innerHTML = '<p class="err">' + esc(e.message) + '</p>'; return; }
   if (my !== navId) return;
   const i = W.secs.indexOf(sec);
-  S = { work, sec, W, data, sel: null, tab: 'commentary', notes: [], layers: { mk: true, hl: true } };
+  S = { work, sec, W, data, sel: null, tab: 'commentary', notes: [], layers: { mk: true, hl: true }, links: { links: [], incoming: [] } };
+  fetch(`/api/links?work=${work}&sec=${encodeURIComponent(sec)}`).then(r => r.ok ? r.json() : null).then(j => { if (j && my === navId && S.work === work && S.sec === sec) { S.links = j; if (S.sel && S.tab === 'links') renderSide(); else if (S.sel) renderSide(); } }).catch(() => { });
   app.innerHTML = `<div class="bar"><h2 class="he">${secLabel(work, sec)}</h2>
     <button class="ghost sm" id="prev" ${i ? '' : 'disabled'}>◀</button>
     <select id="secsel">${W.secs.map(s => `<option value="${s}" ${s === sec ? 'selected' : ''}>${W.label(s)} (${W.lab2(s)})</option>`).join('')}</select>
@@ -321,12 +354,17 @@ function selectSeg(idx, tab, who) {
   history.replaceState(null, '', `#/read/${S.work}/${S.sec}${idx ? '/' + idx : ''}`);
   renderSide();
 }
+function linkCount(sel, xr) {
+  const L = S.links || { links: [], incoming: [] }, noise = l => { const s = (l.to && l.to.sefaria) || (l.from && l.from.sefaria) || ''; return /Dictionary|Jastrow|Footnotes to the English|Lexicon|Klein Dictionary/i.test(s); }, okc = l => (l.confidence ?? 1) >= 0.6 && !noise(l);
+  const n = L.links.filter(l => ((l.from && l.from.idx) || 0) === sel && okc(l)).length + L.incoming.filter(l => ((l.to && l.to.idx) || 0) === sel && okc(l)).length;
+  return n || xr.reduce((a, x) => a + x.items.length, 0);
+}
 function renderSide() {
   const { data, sel, W } = S, side = $('#side');
   if (!sel) { side.innerHTML = `<p class="mut">Click a ${t('seg').toLowerCase()} to see its commentary and links. Select words to attach a note to them.</p><h4>${t('notes')} — ${W.label(S.sec)}</h4><div id="nb"></div>`; notesBrowser($('#nb', side), { scope: 'page' }); return; }
   const cm = data.comments.filter(c => c.idx === sel), xr = data.xrefs.filter(x => x.idx === sel);
   side.innerHTML = `<div class="bar"><b class="he">${secLabel(S.work, S.sec)} · ${W.num(sel)}</b><button class="ghost sm" id="clr">✕</button></div>
-  <div class="tabs"><button data-tab="commentary" class="${S.tab === 'commentary' ? 'on' : ''}">${t('commentary')} (${cm.length})</button><button data-tab="links" class="${S.tab === 'links' ? 'on' : ''}">${t('links')} (${xr.reduce((a, x) => a + x.items.length, 0)})</button><button data-tab="notes" class="${S.tab === 'notes' ? 'on' : ''}">${t('notes')}</button></div><div id="tb"></div>`;
+  <div class="tabs"><button data-tab="commentary" class="${S.tab === 'commentary' ? 'on' : ''}">${t('commentary')} (${cm.length})</button><button data-tab="links" class="${S.tab === 'links' ? 'on' : ''}">${t('links')} (${linkCount(sel, xr)})</button><button data-tab="notes" class="${S.tab === 'notes' ? 'on' : ''}">${t('notes')}</button></div><div id="tb"></div>`;
   $('#clr', side).onclick = () => selectSeg(null);
   $$('.tabs button', side).forEach(b => b.onclick = () => { S.tab = b.dataset.tab; renderSide(); });
   const tb = $('#tb', side);
@@ -339,8 +377,8 @@ function renderSide() {
       by[who].forEach(c => { const x = document.createElement('div'); x.className = 'cmt'; x.innerHTML = dhBold(c.he, who); d.append(x); }); tb.append(d);
     }
   } else if (S.tab === 'links') {
-    if (!xr.length) tb.innerHTML = '<p class="mut">No cross-reference links for this segment yet. Links for the newer books (everything except Shemos, Mishnah Berakhos and Gemara Berakhos) are still being imported and checked.</p>';
-    tb.insertAdjacentHTML('beforeend', '<p class="mut" style="font-size:12px">Imported from the Sefaria link graph. Opens the source on Sefaria.</p>');
+    if (renderLinksTab(tb, sel)) { /* new connections shown */ } else if (!xr.length) tb.innerHTML = '<p class="mut">No cross-reference links for this segment yet. Links for the newer books (everything except Shemos, Mishnah Berakhos and Gemara Berakhos) are still being imported and checked.</p>';
+    if (xr.length) tb.insertAdjacentHTML('beforeend', '<p class="mut" style="font-size:12px">Imported from the Sefaria link graph. Opens the source on Sefaria.</p>');
     const order = ['Commentary', 'Talmud', 'Mishnah', 'Tosefta', 'Midrash', 'Halakhah', 'Tanakh', 'Targum', 'Kabbalah', 'Chasidut', 'Musar', 'Jewish Thought', 'Responsa', 'Liturgy'];
     xr.sort((a, b) => (order.indexOf(a.cat) + 1 || 99) - (order.indexOf(b.cat) + 1 || 99)).forEach(x => {
       tb.append(h(`<div><div class="xcat">${esc(x.cat)}</div>${x.items.map(i => `<a class="xi" target="_blank" rel="noopener" href="https://www.sefaria.org/${encodeURIComponent(i.r.replace(/ /g, '_'))}?lang=he" title="${esc(i.r)}">${esc(i.h || i.t)}${i.n > 1 ? ` <span class="mut">×${i.n}</span>` : ''}</a>`).join('')}</div>`));
