@@ -116,6 +116,7 @@ R('GET', '/api/section', async ({ url, env }) => {
       else if (pg.has(k)) comments.push({ idx: 0, who: c.who, n: n + 1, he }); // idx 0 = the whole page
       else comments.push({ idx: +seg, who: c.who, n: n + 1, he });
     });
+    if (Array.isArray(c.unplaced)) c.unplaced.forEach((he, n) => comments.push({ idx: 0, who: c.who, n: 1000 + n, he })); // section-level commentary (could not be tied to one line)
   }
   comments.sort((a, b) => a.idx - b.idx || a.who.localeCompare(b.who) || a.n - b.n);
   const lw = LEGACY[work] || '-';
