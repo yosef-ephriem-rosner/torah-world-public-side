@@ -6,7 +6,7 @@ Generated 2026-11-26 from Sefaria export data (125 sections). Text check = bold 
 |---|---|---|---|---|---|
 | Rashi | 3138 | 88.2 (3071) | 88.6 | 100.0 (3138) | ok (links) |
 | Steinsaltz | 2748 | 62.7 (2074) | 62.9 | 100.0 (2748) | ok (links) |
-| Reshimot Shiurim | 2217 | 0.9 (552) | 3.3 | 6.7 (284) | unverifiable (too f) |
+| Reshimot Shiurim | 2217 | 0.9 (552) | 3.3 | 6.7 (284) | MISALIGNED (links) |
 | Shita Mekubetzet | 953 | 78.3 (608) | 79.4 | 95.2 (796) | ok (links) |
 | Rabbeinu Yonah | 701 | 2.2 (673) | 4.3 | None (0) | MISALIGNED (text) |
 | Chidushei Agadot | 697 | 11.0 (694) | 21.9 | 7.4 (591) | MISALIGNED (links) |
@@ -36,6 +36,6 @@ Generated 2026-11-26 from Sefaria export data (125 sections). Text check = bold 
 | Chiddushei Ramban | 18 | 0.0 (13) | 7.7 | 0.0 (18) | MISALIGNED (links) |
 | Milchemet Hashem | 15 | None (0) | None | None (0) | unverifiable (too f) |
 
-**Systematically misaligned:** Ben Yehoyada, Chiddushei Anshei Shem, Chiddushei Rabbi Akiva Eiger, Chiddushei Ramban, Chidushei Agadot, Chidushei Halachot, Chokhmat Shlomo, Divrey Chamudot, Gilyon HaShas, Katuv Sham, Maadaney Yom Tov, Marit HaAyin, Penei Yehoshua, Petach Einayim, Piskei Tosafot, Rabbeinu Yonah, Rashash, Rashba, Ritva
+**Systematically misaligned:** Ben Yehoyada, Chiddushei Anshei Shem, Chiddushei Rabbi Akiva Eiger, Chiddushei Ramban, Chidushei Agadot, Chidushei Halachot, Chokhmat Shlomo, Divrey Chamudot, Gilyon HaShas, Katuv Sham, Maadaney Yom Tov, Marit HaAyin, Penei Yehoshua, Petach Einayim, Piskei Tosafot, Rabbeinu Yonah, Rashash, Rashba, Reshimot Shiurim, Ritva
 
 Suggested correct placements for misaligned commentators: R2 `reports/links/bavli-berakhot.placement.json` (`{who: {method, map: {"sec:ourSeg:commentIdx": [correctSegs]}}}`). Suspicious samples per commentator: R2 `reports/links/bavli-berakhot.json`.

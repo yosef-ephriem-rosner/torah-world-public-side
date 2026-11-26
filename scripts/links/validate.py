@@ -103,7 +103,7 @@ def main():
             links_check=dict(sefaria_seg_has_dh_pct=pct(S['sef_dh_ok'], S['sef_dh']), linked=S['linked'], aligned=S['aligned'], misaligned=S['misaligned'], no_sefaria_link=S['unlinked'], rate_aligned_pct=pct(S['aligned'], S['linked'])),
             suspicious_sample=S['susp'])
         tc, lc = comm[who]['text_check'], comm[who]['links_check']
-        if lc['linked'] >= 10 and lc['linked'] >= 0.3 * S['comments']:      # Sefaria links are the authority when they cover the commentator
+        if lc['linked'] >= 10:      # Sefaria links are the authority whenever they exist for the commentator
             v = 'ok' if lc['rate_aligned_pct'] >= 85 else 'MISALIGNED'; basis = 'links'
         elif tc['with_dh'] >= 20 and tc['with_dh'] >= 0.5 * S['comments']:  # otherwise the dibur hamatchil text check
             v = 'ok' if tc['rate_within1_pct'] >= 50 else 'MISALIGNED'; basis = 'text'

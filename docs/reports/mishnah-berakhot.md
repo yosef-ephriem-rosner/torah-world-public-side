@@ -4,7 +4,7 @@ Generated 2026-11-26 from Sefaria export data (9 sections). Text check = bold di
 
 | Commentator | comments | DH found exact % | within +-1 % | links aligned % (linked) | verdict (basis) |
 |---|---|---|---|---|---|
-| Mishnat Eretz Yisrael | 1064 | 42.3 (435) | 42.5 | 97.4 (117) | unverifiable (too f) |
+| Mishnat Eretz Yisrael | 1064 | 42.3 (435) | 42.5 | 97.4 (117) | ok (links) |
 | Yachin | 297 | 3.4 (297) | 6.1 | 3.0 (297) | MISALIGNED (links) |
 | Lechem Shamayim | 292 | 21.0 (248) | 23.4 | 100.0 (178) | ok (links) |
 | Melekhet Shelomoh | 230 | 71.0 (224) | 71.0 | 100.0 (230) | ok (links) |
