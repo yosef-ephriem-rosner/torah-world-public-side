@@ -361,7 +361,16 @@ function linkCount(sel, xr) {
 }
 function renderSide() {
   const { data, sel, W } = S, side = $('#side');
-  if (!sel) { side.innerHTML = `<p class="mut">Click a ${t('seg').toLowerCase()} to see its commentary and links. Select words to attach a note to them.</p><h4>${t('notes')} — ${W.label(S.sec)}</h4><div id="nb"></div>`; notesBrowser($('#nb', side), { scope: 'page' }); return; }
+  if (!sel) {
+    side.innerHTML = `<p class="mut">Click a ${t('seg').toLowerCase()} to see its commentary and links. Select words to attach a note to them.</p><div id="pgc"></div><h4>${t('notes')} — ${W.label(S.sec)}</h4><div id="nb"></div>`;
+    const pg = data.comments.filter(c => c.idx === 0);
+    if (pg.length) {
+      const by = {}; pg.forEach(c => (by[c.who] = by[c.who] || []).push(c));
+      const box = $('#pgc', side); box.innerHTML = '<h4 style="margin:6px 0">Commentary on the whole page</h4><p class="mut" style="font-size:12px">These mefarshim are organized by their own sections, so they are not tied to a single line here.</p>';
+      Object.keys(by).sort(whoSort).forEach(who => { const d = h(`<details class="cm"><summary>${esc(HEWHO[who] || who)} <span class="mut">${esc(who)} · ${by[who].length}</span></summary></details>`); by[who].forEach(c => { const x = document.createElement('div'); x.className = 'cmt'; x.innerHTML = dhBold(c.he, who); d.append(x); }); box.append(d); });
+    }
+    notesBrowser($('#nb', side), { scope: 'page' }); return;
+  }
   const cm = data.comments.filter(c => c.idx === sel), xr = data.xrefs.filter(x => x.idx === sel);
   side.innerHTML = `<div class="bar"><b class="he">${secLabel(S.work, S.sec)} · ${W.num(sel)}</b><button class="ghost sm" id="clr">✕</button></div>
   <div class="tabs"><button data-tab="commentary" class="${S.tab === 'commentary' ? 'on' : ''}">${t('commentary')} (${cm.length})</button><button data-tab="links" class="${S.tab === 'links' ? 'on' : ''}">${t('links')} (${linkCount(sel, xr)})</button><button data-tab="notes" class="${S.tab === 'notes' ? 'on' : ''}">${t('notes')}</button></div><div id="tb"></div>`;

@@ -102,12 +102,21 @@ R('POST', '/api/me/level', async ({ req, env, u }) => {
 R('GET', '/api/section', async ({ url, env }) => {
   const work = url.searchParams.get('work'), sec = url.searchParams.get('sec');
   if (!WORKS[work] || !sec || !/^[0-9]{1,3}[ab]?$/.test(sec)) return err('bad ref');
-  const obj = await env.R2.get('sections/' + work.replace('-', '/') + '/' + sec + '.json');
+  const [obj, pobj] = await Promise.all([env.R2.get('sections/' + work.replace('-', '/') + '/' + sec + '.json'), env.R2.get('placement/' + work + '/' + sec + '.json')]);
   if (!obj) return err('not found', 404);
   const doc = await obj.json();
+  const pl = pobj ? await pobj.json() : null; // corrections for commentaries whose own numbering is not the base-text segment numbering
   const segments = doc.text.segments.map((he, i) => ({ idx: i + 1, he })).filter(s => s.he);
   const comments = [];
-  for (const c of doc.commentary) for (const [idx, arr] of Object.entries(c.seg)) arr.forEach((he, n) => comments.push({ idx: +idx, who: c.who, n: n + 1, he }));
+  for (const c of doc.commentary) {
+    const mv = (pl && pl.moves && pl.moves[c.who]) || null, pg = new Set((pl && pl.page && pl.page[c.who]) || []);
+    for (const [seg, arr] of Object.entries(c.seg)) arr.forEach((he, n) => {
+      const k = seg + ':' + (n + 1);
+      if (mv && mv[k]) { if (mv[k].length) for (const t of mv[k]) comments.push({ idx: +t, who: c.who, n: n + 1, he }); else comments.push({ idx: 0, who: c.who, n: n + 1, he }); }
+      else if (pg.has(k)) comments.push({ idx: 0, who: c.who, n: n + 1, he }); // idx 0 = the whole page
+      else comments.push({ idx: +seg, who: c.who, n: n + 1, he });
+    });
+  }
   comments.sort((a, b) => a.idx - b.idx || a.who.localeCompare(b.who) || a.n - b.n);
   const lw = LEGACY[work] || '-';
   const [xr, nc, al] = await env.DB.batch([
