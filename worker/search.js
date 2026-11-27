@@ -34,11 +34,17 @@ function locate(m, gid) {            // global segment id -> {book, sec, idx(1-b
 
 // ---- shard access (R2 + small isolate cache)
 const CACHE = new Map(); let CACHE_BYTES = 0;
+const LOCS = new Map();
+async function locs(env, m, fam) {      // shard key -> [pack, offset, length] (packs of ~16 MB, read with R2 range requests)
+  const k = m.v + '/' + fam;
+  if (!LOCS.has(k)) LOCS.set(k, env.R2.get('search/' + k + '.loc.json').then(o => o ? o.json() : {}).catch(e => { LOCS.delete(k); throw e; }));
+  return LOCS.get(k);
+}
 async function shard(env, m, fam, key) {
   const k = m.v + '/' + fam + '/' + key;
   if (CACHE.has(k)) { const v = CACHE.get(k); CACHE.delete(k); CACHE.set(k, v); return v; }
-  const o = await env.R2.get('search/' + k + '.bin'); let u8 = null;
-  if (o) u8 = new Uint8Array(await o.arrayBuffer());
+  const l = (await locs(env, m, fam))[key]; let u8 = null;
+  if (l) { const o = await env.R2.get('search/' + m.v + '/' + fam + '/p' + l[0] + '.bin', { range: { offset: l[1], length: l[2] } }); if (o) u8 = new Uint8Array(await o.arrayBuffer()); }
   CACHE.set(k, u8); CACHE_BYTES += u8 ? u8.length : 0;
   while (CACHE_BYTES > 48e6 && CACHE.size > 1) { const f = CACHE.keys().next().value; CACHE_BYTES -= CACHE.get(f)?.length || 0; CACHE.delete(f); }
   return u8;

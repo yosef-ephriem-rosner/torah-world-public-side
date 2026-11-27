@@ -161,16 +161,26 @@ def cmd_merge(a):
     print(json.dumps({k: {'files': v['files'], 'bytes': v['bytes'], 'terms': v['terms'], 'max': v['max']} for k, v in stats.items()}))
     print(f'books={len(books)} segments={off} commentators={len(whos)} cm={cm} total={tot / 1e6:.1f} MB manifest={os.path.getsize(os.path.join(a.out, "search", "manifest.json")) / 1e3:.0f} KB')
 
+PACK = 16_000_000
 def write_family(outdir, fam, idx, limit=300_000):
+    """shards are packed into ~16 MB files (few R2 objects: the REST upload limit is requests, not bytes); <fam>.loc.json maps shard key -> [pack, offset, length]"""
     est = collections.Counter()
     for t, v in idx.items(): est[''.join(chr(96 + CODE[c]) for c in t[:2])] += len(v) * 2 + len(t) + 8
     split = {k for k, b in est.items() if b > limit}
     groups = collections.defaultdict(list)
     for t, v in idx.items(): groups[key_of(t, split)].append((t, sorted(set(v))))
-    total = 0; mx = 0; nterms = 0
-    for k, items in groups.items():
-        n = write_shard(os.path.join(outdir, fam, k + '.bin'), items); total += n; mx = max(mx, n); nterms += len(items)
-    return {'files': len(groups), 'bytes': total, 'terms': nterms, 'max': mx, 'split': sorted(split)}
+    os.makedirs(os.path.join(outdir, fam), exist_ok=True)
+    loc = {}; pack = 0; cur = bytearray(); total = 0; mx = 0; nterms = 0; tmp = os.path.join(outdir, fam, '_tmp.bin')
+    def flush():
+        nonlocal pack, cur
+        if cur: open(os.path.join(outdir, fam, f'p{pack}.bin'), 'wb').write(cur); pack += 1; cur = bytearray()
+    for k in sorted(groups):
+        n = write_shard(tmp, groups[k]); data = open(tmp, 'rb').read()
+        if cur and len(cur) + n > PACK: flush()
+        loc[k] = [pack, len(cur), n]; cur += data; total += n; mx = max(mx, n); nterms += len(groups[k])
+    flush(); os.remove(tmp)
+    json.dump(loc, open(os.path.join(outdir, fam + '.loc.json'), 'w'), separators=(',', ':'))
+    return {'files': len(groups), 'bytes': total, 'terms': nterms, 'max': mx, 'split': sorted(split), 'packs': pack}
 
 # ---------------------------------------------------------------- plan / r2
 def r2_api():
