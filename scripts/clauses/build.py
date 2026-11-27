@@ -72,7 +72,7 @@ def pack_book(book, secs_data, stamp):
 
 def main():
     ap = argparse.ArgumentParser(); ap.add_argument('--books', default=''); ap.add_argument('--group', default=''); ap.add_argument('--out', default='out'); ap.add_argument('--cache', default='cache')
-    ap.add_argument('--no-upload', action='store_true'); ap.add_argument('--threads', type=int, default=4)
+    ap.add_argument('--no-upload', action='store_true'); ap.add_argument('--resume', action='store_true'); ap.add_argument('--threads', type=int, default=4)
     a = ap.parse_args()
     cat = []
     for k in r2.rest_list('catalog'):
@@ -84,7 +84,9 @@ def main():
     put = lambda key, data, ct: call('PUT', base + urllib.parse.quote(key, safe='/'), data, ct)
     stamp = time.strftime('%Y%m%d%H%M%S', time.gmtime()); fails = []
     for b in sel:
-        book = b['id']; kind = 'tanakh' if b.get('cat') == 'Tanakh' else 'prose'; print('start', book, len(b['secs']), flush=True)
+        book = b['id']
+        if a.resume and os.path.exists(f'{a.out}/reports/clauses/{book}.json'): continue   # finished in an earlier run (output dir kept)
+        kind = 'tanakh' if b.get('cat') == 'Tanakh' else 'prose'; print('start', book, len(b['secs']), flush=True)
         t0 = time.time()
         pack_blobs(book); datas = list(ThreadPoolExecutor(a.threads).map(lambda s: load_sec(a.cache, book, s), b['secs']))
         _PACKS.pop(book, None)
