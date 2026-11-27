@@ -5,10 +5,11 @@ const FINAL = { 'ך': 'כ', 'ם': 'מ', 'ן': 'נ', 'ף': 'פ', 'ץ': 'צ' };
 const PREFIX = 'ובהכלמש';
 const REMOVE = /[֑-ׇֽֿׁׂׅׄ‍"'׳״]/g;
 const TOKEN = /[֑-ׇֽֿׁׂׅׄא-ת‍"'׳״]+/g;
-const TAGS = /<[^>]*>/g;
+const TAGS = /<[^>]*>/g, BR = /<br\s*\/?>/gi;
+const strip = s => s.replace(BR, ' ').replace(TAGS, '');
 const BLOCK = 128, MAX_SECS = 14, MAX_CAND = 4000;
 const fold = w => w.replace(REMOVE, '').replace(/[ךםןףץ]/g, c => FINAL[c]);
-export const words = s => s.replace(TAGS, ' ').replace(REMOVE, '').replace(/[ךםןףץ]/g, c => FINAL[c]).replace(/[^א-ת]+/g, ' ').trim().split(' ').filter(Boolean);
+export const words = s => strip(s).replace(REMOVE, '').replace(/[ךםןףץ]/g, c => FINAL[c]).replace(/[^א-ת]+/g, ' ').trim().split(' ').filter(Boolean);
 const keysOf = w => { const o = [w]; for (let i = 0; i < 2 && w.length >= 3 && PREFIX.includes(w[0]); i++) { w = w.slice(1); o.push(w); } return o; };
 const keyOf = (t, split) => { let k = ''; for (let i = 0; i < 2; i++) k += String.fromCharCode(96 + CODE[t[i]]); if (split && split.includes(k)) k = t.length >= 3 ? k + String.fromCharCode(96 + CODE[t[2]]) : k + '_'; return k; };
 
@@ -98,7 +99,7 @@ function seek(c, target) {
 
 // ---- matching helpers
 function tokens(text) {
-  const plain = text.replace(TAGS, ' '), out = []; let m; TOKEN.lastIndex = 0;
+  const plain = strip(text), out = []; let m; TOKEN.lastIndex = 0;
   while ((m = TOKEN.exec(plain))) { const w = fold(m[0]); if (w) out.push({ w, a: m.index, b: m.index + m[0].length }); }
   return { plain, out };
 }

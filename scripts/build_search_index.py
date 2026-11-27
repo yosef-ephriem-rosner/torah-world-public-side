@@ -27,10 +27,11 @@ class _T(dict):
     def __missing__(self, k): return ' '
 TRT = _T(TR)
 TAG = re.compile(r'<[^>]*>')
+BR = re.compile(r'<br\s*/?>', re.I)      # <br> separates words; any other tag (e.g. <big>ב</big>ראשית) is removed without splitting the word
 MINLEN, MAXLEN, BLOCK = 2, 24, 128
 
 def words(s):
-    return TRT_translate(TAG.sub(' ', s)).split()
+    return TRT_translate(TAG.sub('', BR.sub(' ', s))).split()
 def TRT_translate(s): return s.translate(TRT)
 
 def keys_of(w):

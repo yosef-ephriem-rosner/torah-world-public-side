@@ -42,7 +42,7 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: |
-          args=""; [ "${{ inputs.force }}" = "true" ] && args="$args --force"; [ "${{ inputs.extra }}" = "true" ] && args="$args --extra"
+          args=""; { [ "${{ inputs.force }}" = "true" ] || grep -q force .github/search_run.txt; } && args="$args --force"; [ "${{ inputs.extra }}" = "true" ] && args="$args --extra"
           [ -n "${{ inputs.only }}" ] && args="$args --only ${{ inputs.only }}"
           items=$(python3 scripts/build_search_index.py plan $args)
           echo "items=$items" >> "$GITHUB_OUTPUT"
