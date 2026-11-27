@@ -122,9 +122,11 @@ def undelta(l):
 def cmd_merge(a):
     files = sorted(f for f in os.listdir(a.partials) if f.endswith('.json.gz'))
     parts = []
-    for f in files:
-        with gzip.open(os.path.join(a.partials, f), 'rt', encoding='utf-8') as fh: parts.append(json.load(fh))
-    CAT_ORDER = ['tanakh', 'mishnah', 'bavli', 'yerushalmi', 'tosefta', 'midrash', 'halakhah', 'kabbalah', 'chasidut', 'musar', 'liturgy']   # results come in this order (base texts first)
+    def load(f):
+        with gzip.open(os.path.join(a.partials, f), 'rt', encoding='utf-8') as fh: return json.load(fh)
+    for f in files:                                           # pass 1: metadata only (keeps memory low with ~800 books)
+        d = load(f); parts.append({k: d.get(k) for k in ('book', 'title', 'secs', 'who')}); parts[-1]['_file'] = f; del d
+    CAT_ORDER = ['tanakh', 'mishnah', 'bavli', 'yerushalmi', 'tosefta', 'midrash', 'halakhah', 'responsa', 'kabbalah', 'chasidut', 'musar', 'jewishthought', 'liturgy', 'secondtemple']   # results come in this order (base texts first)
     parts.sort(key=lambda p: (CAT_ORDER.index(p['book'].split('-')[0]) if p['book'].split('-')[0] in CAT_ORDER else 99, p['book']))   # categories stay contiguous gid ranges
     whos = {}                                                 # global commentator ids start at 1
     for p in parts:
@@ -143,7 +145,7 @@ def cmd_merge(a):
     for fam in ('b', 'c'):
         ex = collections.defaultdict(lambda: array.array('Q')); xp = collections.defaultdict(lambda: array.array('Q'))
         for p in parts:
-            o = p['_off']; src = p['base'] if fam == 'b' else p['comm']
+            d = load(p['_file']); o = p['_off']; src = d['base'] if fam == 'b' else d['comm']; del d
             wmap = [whos[w['who']]['id'] for w in p['who']]
             for t, dl in src.items():
                 vals = undelta(dl)
@@ -217,23 +219,57 @@ def cmd_plan(a):
                     if b['id'] not in core: items.append({'kind': 'r2', 'title': b['id'], 'id': b['id'], 'secs': b['secs']}); core.add(b['id'])
     items = [i for i in items if i['id'] not in have]
     if a.only: only = set(a.only.split(',')); items = [i for i in items if i['id'] in only or i['title'] in only]
+    ex = [i for i in items if i['kind'] == 'r2']; items = [i for i in items if i['kind'] != 'r2']
+    for k in range(0, len(ex), a.batch):        # GitHub matrices are limited to 256 jobs: several books per job
+        ids = [i['id'] for i in ex[k:k + a.batch]]; items.append({'kind': 'r2batch', 'title': f'batch-{k // a.batch}', 'id': f'batch-{k // a.batch}', 'ids': ','.join(ids)})
     print(json.dumps(items, ensure_ascii=False, separators=(',', ':')))
 
-def cmd_fetch_r2(a):
-    cat, rest = a.book.split('-', 1); d = os.path.join(a.out, cat, rest); os.makedirs(d, exist_ok=True)
-    secs = a.secs.split(',') if a.secs else [k.rsplit('/', 1)[1][:-5] for k in r2_list(f'sections/{cat}/{rest}/') if k.endswith('.json')]
-    for i, s in enumerate(secs):
-        try: open(os.path.join(d, s + '.json'), 'wb').write(r2_get(f'sections/{cat}/{rest}/{s}.json'))
-        except Exception as e: print('missing', s, e)
+def fetch_book(book, out, secs=''):
+    """write the section files of one non-Sefaria book under <out>/<cat>/<rest>/: from packs/<book>/index.json (few big GETs) or one GET per section"""
+    cat, rest = book.split('-', 1); d = os.path.join(out, cat, rest); os.makedirs(d, exist_ok=True)
+    try: idx = json.loads(r2_get(f'packs/{book}/index.json'))
+    except Exception: idx = None
+    if idx and idx.get('secs'):
+        blobs = {}
+        for sec, (fi, off, ln) in idx['secs'].items():
+            if fi not in blobs: blobs[fi] = r2_get(f"packs/{book}/{idx['files'][fi]}")
+            open(os.path.join(d, sec + '.json'), 'wb').write(blobs[fi][off:off + ln])
+        return len(idx['secs'])
+    names = secs.split(',') if secs else [k.rsplit('/', 1)[1][:-5] for k in r2_list(f'sections/{cat}/{rest}/') if k.endswith('.json')]
+    for sname in names:
+        try: open(os.path.join(d, sname + '.json'), 'wb').write(r2_get(f'sections/{cat}/{rest}/{sname}.json'))
+        except Exception as e: print('missing', sname, e)
         time.sleep(0.35)                                      # ~3 req/s: the REST API allows ~1200 per 5 min for the whole account
-    print(f'{a.book}: fetched {len(secs)} sections')
+    return len(names)
+
+def cmd_fetch_r2(a):
+    print(f'{a.book}: fetched {fetch_book(a.book, a.out, a.secs)} sections')
+
+def cmd_batch(a):
+    """fetch + partial for several non-Sefaria books (one CI job)"""
+    import shutil
+    for book in a.ids.split(','):
+        tmp = os.path.join(a.work, 'sections')
+        try:
+            if os.path.isdir(tmp): shutil.rmtree(tmp)
+            n = fetch_book(book, tmp)
+            if not n: print('no sections for', book); continue
+            cmd_partial(argparse.Namespace(sections=tmp, book=book, out=a.out))
+        except Exception as e: print('FAILED', book, str(e)[:200])
 
 def cmd_fetch_partials(a):
+    from concurrent.futures import ThreadPoolExecutor
     os.makedirs(a.out, exist_ok=True)
     keys = [k for k in r2_list('search/_partial/') if k.endswith('.json.gz')]
-    for k in keys:
-        open(os.path.join(a.out, k.split('/')[-1]), 'wb').write(r2_get(k)); time.sleep(0.3)
-    print(f'{len(keys)} partials downloaded')
+    def one(k):
+        fn = os.path.join(a.out, k.split('/')[-1])
+        if os.path.exists(fn) and os.path.getsize(fn) > 0: return 0          # resumable
+        try: data = r2_get(k)
+        except Exception as e: print('FAILED', k, str(e)[:100], flush=True); return 1
+        open(fn + '.part', 'wb').write(data); os.replace(fn + '.part', fn); return 0
+    with ThreadPoolExecutor(a.threads) as ex: failed = sum(ex.map(one, keys))
+    print(f'{len(keys)} partials, {failed} failed')
+    if failed: sys.exit(1)
 
 def selftest():
     assert words('בְּרֵאשִׁ֖ית בָּרָ֣א <b>אֱלֹהִ֑ים</b> רמב"ם ר״ן וכו\' על־כן') == ['בראשית', 'ברא', 'אלהימ', 'רמבמ', 'רנ', 'וכו', 'על', 'כנ'], words('בְּרֵאשִׁ֖ית בָּרָ֣א <b>אֱלֹהִ֑ים</b> רמב"ם ר״ן וכו\' על־כן')
@@ -243,14 +279,15 @@ def selftest():
 
 def main():
     ap = argparse.ArgumentParser(); sp = ap.add_subparsers(dest='cmd', required=True)
-    p = sp.add_parser('plan'); p.add_argument('--force', action='store_true'); p.add_argument('--extra', action='store_true'); p.add_argument('--only', default='')
+    p = sp.add_parser('plan'); p.add_argument('--force', action='store_true'); p.add_argument('--extra', action='store_true'); p.add_argument('--only', default=''); p.add_argument('--batch', type=int, default=30)
     p = sp.add_parser('partial'); p.add_argument('--sections', required=True); p.add_argument('--book', required=True); p.add_argument('--out', required=True)
     p = sp.add_parser('fetch-r2'); p.add_argument('--book', required=True); p.add_argument('--out', required=True); p.add_argument('--secs', default='')
-    p = sp.add_parser('fetch-partials'); p.add_argument('--out', required=True)
+    p = sp.add_parser('batch'); p.add_argument('--ids', required=True); p.add_argument('--work', default='work'); p.add_argument('--out', required=True)
+    p = sp.add_parser('fetch-partials'); p.add_argument('--out', required=True); p.add_argument('--threads', type=int, default=6)
     p = sp.add_parser('merge'); p.add_argument('--partials', required=True); p.add_argument('--out', required=True); p.add_argument('--version', default='')
     sp.add_parser('selftest')
     a = ap.parse_args()
-    {'plan': cmd_plan, 'partial': cmd_partial, 'fetch-r2': cmd_fetch_r2, 'fetch-partials': cmd_fetch_partials, 'merge': cmd_merge, 'selftest': lambda _: selftest()}[a.cmd](a)
+    {'plan': cmd_plan, 'partial': cmd_partial, 'fetch-r2': cmd_fetch_r2, 'batch': cmd_batch, 'fetch-partials': cmd_fetch_partials, 'merge': cmd_merge, 'selftest': lambda _: selftest()}[a.cmd](a)
 
 if __name__ == '__main__':
     main()
