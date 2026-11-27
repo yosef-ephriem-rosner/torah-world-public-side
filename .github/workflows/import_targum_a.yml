@@ -1,0 +1,58 @@
+name: Add Targumim to tanakh books (R2)
+# Content session A: scripts/add_targum.py merges Onkelos / Targum Jonathan / Aramaic Targum into existing tanakh section files. Originals are kept as an artifact (backup).
+on:
+  workflow_dispatch:
+    inputs:
+      books:
+        description: 'Optional JSON list of book ids (default: all that have a Targum)'
+        required: false
+        default: ''
+        type: string
+  push:
+    branches: [content-a-work]
+    paths: ['.github/targum_request.json']
+
+permissions:
+  contents: read
+
+jobs:
+  plan:
+    runs-on: ubuntu-latest
+    outputs:
+      books: ${{ steps.list.outputs.books }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.12' }
+      - id: list
+        run: |
+          B='${{ inputs.books }}'
+          if [ "${{ github.event_name }}" = push ]; then B=$(python3 -c "import json;print(json.dumps(json.load(open('.github/targum_request.json')).get('books') or ''))" | sed 's/^""$//'); fi
+          if [ -n "$B" ]; then echo "books=$B" >> "$GITHUB_OUTPUT"; else echo "books=$(python3 scripts/add_targum.py --list)" >> "$GITHUB_OUTPUT"; fi
+
+  merge:
+    needs: plan
+    runs-on: ubuntu-latest
+    timeout-minutes: 340
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        book: ${{ fromJson(needs.plan.outputs.books) }}
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.12' }
+      - name: Merge Targum into the existing sections
+        run: python3 scripts/add_targum.py --book "${{ matrix.book }}" --out out --orig orig
+      - name: Keep the original files as backup
+        uses: actions/upload-artifact@v4
+        with:
+          name: orig-${{ matrix.book }}
+          path: orig
+          retention-days: 7
+      - name: Upload (packs)
+        run: python3 scripts/upload_pack.py out --threads 2
