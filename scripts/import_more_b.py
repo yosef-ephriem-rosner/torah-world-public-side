@@ -10,7 +10,7 @@ Does NOT touch scripts/import_export.py (only imports helpers from it). Output l
   python3 scripts/import_more_b.py --title "Mishneh Torah, Sabbath" --out out
   python3 scripts/import_more_b.py --build-catalog manifests_dir --out out   # writes out/catalog/<cat>.json (merges with R2 copy if token set)
 """
-import argparse, collections, datetime, glob, json, os, re, sys, urllib.parse, urllib.request
+import argparse, collections, datetime, glob, json, os, re, sys, urllib.error, urllib.parse, urllib.request
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from import_export import BOOKS_URL, TOC_URL, clean, flat, fetch, norm_license, slug
 
@@ -238,16 +238,48 @@ def build_catalog(d, out):
         json.dump({'schema': 1, 'books': books}, open(os.path.join(out, 'catalog', cat + '.json'), 'w'), ensure_ascii=False, separators=(',', ':'))
         print(f'catalog/{cat}.json: {len(books)} books ({len(entries)} new/updated)')
 
+def _api(req, tries=8):
+    import time
+    for i in range(tries):
+        try: return json.load(urllib.request.urlopen(req, timeout=120))
+        except urllib.error.HTTPError as e:
+            if e.code not in (429, 500, 502, 503, 504) or i == tries - 1: raise
+            time.sleep(min(60, 3 * 2 ** i))
+
+def rebuild_catalog(out):
+    """authoritative catalog from ALL manifests in R2 (race-free: concurrent runs just rebuild the same result)"""
+    tok = os.environ['CLOUDFLARE_API_TOKEN']; h = {'Authorization': 'Bearer ' + tok}
+    acct = os.environ.get('CLOUDFLARE_ACCOUNT_ID') or _api((urllib.request.Request('https://api.cloudflare.com/client/v4/accounts', headers=h)))['result'][0]['id']
+    base = f'https://api.cloudflare.com/client/v4/accounts/{acct}/r2/buckets/torah-world-data/objects'
+    cats = collections.defaultdict(list)
+    for cat in ('midrash', 'halakhah'):
+        cursor = None
+        while True:
+            u = f'{base}?prefix=manifest/{cat}-&per_page=1000' + (f'&cursor={cursor}' if cursor else '')
+            d = _api((urllib.request.Request(u, headers=h)))
+            for o in d['result']:
+                try: m = _api((urllib.request.Request(base + '/' + urllib.parse.quote(o['key'], safe='/'), headers=h)))
+                except Exception as e: print('skip', o['key'], e); continue
+                if m.get('catalog_entry'): cats[cat].append(m['catalog_entry'])
+            cursor = (d.get('result_info') or {}).get('cursor')
+            if not (d.get('result_info') or {}).get('is_truncated'): break
+    os.makedirs(os.path.join(out, 'catalog'), exist_ok=True)
+    for cat, books in cats.items():
+        books.sort(key=lambda b: (b.get('group', ''), b.get('order', 0)))
+        json.dump({'schema': 1, 'books': books}, open(os.path.join(out, 'catalog', cat + '.json'), 'w'), ensure_ascii=False, separators=(',', ':'))
+        print(f'catalog/{cat}.json: {len(books)} books')
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--list', choices=sorted(FAMILIES) + ['all-halakhah', 'all-midrash', 'all'])
-    ap.add_argument('--family', choices=sorted(FAMILIES)); ap.add_argument('--title'); ap.add_argument('--out', default='out'); ap.add_argument('--build-catalog')
+    ap.add_argument('--family', choices=sorted(FAMILIES)); ap.add_argument('--title'); ap.add_argument('--out', default='out'); ap.add_argument('--build-catalog'); ap.add_argument('--rebuild-catalog', action='store_true')
     a = ap.parse_args()
     if a.list:
         books = hebrew_books()
         fams = [a.list] if a.list in FAMILIES else [k for k, v in FAMILIES.items() if a.list == 'all' or a.list == 'all-' + v['cat']]
         # output entries "family|title" would complicate matrices; titles are unique across families
         print(json.dumps([t for fam in fams for t in family_titles(fam, books)], ensure_ascii=False)); return
+    if a.rebuild_catalog: rebuild_catalog(a.out); return
     if a.build_catalog: build_catalog(a.build_catalog, a.out); return
     if not a.title: sys.exit('give --title')
     if not a.family:
