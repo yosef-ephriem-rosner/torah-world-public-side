@@ -161,9 +161,50 @@ function booksByCat() {
   for (const c of Object.values(out)) for (const g of Object.values(c)) g.sort((a, b) => a[1].order - b[1].order);
   return out;
 }
+// ---------- the five chumashim by parsha: [hebrew, english, chapter, verse]
+const PARSHIYOT = {
+  'tanakh-genesis': [['בראשית', 'Bereshit', 1, 1], ['נח', 'Noach', 6, 9], ['לך לך', 'Lech Lecha', 12, 1], ['וירא', 'Vayera', 18, 1], ['חיי שרה', 'Chayei Sara', 23, 1], ['תולדות', 'Toldot', 25, 19], ['ויצא', 'Vayetze', 28, 10], ['וישלח', 'Vayishlach', 32, 4], ['וישב', 'Vayeshev', 37, 1], ['מקץ', 'Miketz', 41, 1], ['ויגש', 'Vayigash', 44, 18], ['ויחי', 'Vayechi', 47, 28]],
+  'tanakh-exodus': [['שמות', 'Shemot', 1, 1], ['וארא', 'Vaera', 6, 2], ['בא', 'Bo', 10, 1], ['בשלח', 'Beshalach', 13, 17], ['יתרו', 'Yitro', 18, 1], ['משפטים', 'Mishpatim', 21, 1], ['תרומה', 'Terumah', 25, 1], ['תצוה', 'Tetzaveh', 27, 20], ['כי תשא', 'Ki Tisa', 30, 11], ['ויקהל', 'Vayakhel', 35, 1], ['פקודי', 'Pekudei', 38, 21]],
+  'tanakh-leviticus': [['ויקרא', 'Vayikra', 1, 1], ['צו', 'Tzav', 6, 1], ['שמיני', 'Shemini', 9, 1], ['תזריע', 'Tazria', 12, 1], ['מצורע', 'Metzora', 14, 1], ['אחרי מות', 'Acharei Mot', 16, 1], ['קדושים', 'Kedoshim', 19, 1], ['אמור', 'Emor', 21, 1], ['בהר', 'Behar', 25, 1], ['בחוקותי', 'Bechukotai', 26, 3]],
+  'tanakh-numbers': [['במדבר', 'Bamidbar', 1, 1], ['נשא', 'Naso', 4, 21], ['בהעלותך', 'Behaalotecha', 8, 1], ['שלח', 'Shelach', 13, 1], ['קרח', 'Korach', 16, 1], ['חקת', 'Chukat', 19, 1], ['בלק', 'Balak', 22, 2], ['פינחס', 'Pinchas', 25, 10], ['מטות', 'Matot', 30, 2], ['מסעי', 'Masei', 33, 1]],
+  'tanakh-deuteronomy': [['דברים', 'Devarim', 1, 1], ['ואתחנן', 'Vaetchanan', 3, 23], ['עקב', 'Ekev', 7, 12], ['ראה', 'Reeh', 11, 26], ['שופטים', 'Shoftim', 16, 18], ['כי תצא', 'Ki Tetze', 21, 10], ['כי תבוא', 'Ki Tavo', 26, 1], ['נצבים', 'Nitzavim', 29, 9], ['וילך', 'Vayelech', 31, 1], ['האזינו', 'Haazinu', 32, 1], ['וזאת הברכה', 'Vezot Haberacha', 33, 1]]
+};
+// nested "Learn" menu: category > group (e.g. Torah / a seder) > book > (for chumash) parsha. Columns open as you hover, focus or tap.
+let MENU = [], menuPath = [];
+function menuTree() {
+  const bc = booksByCat();
+  return catList().filter(([c]) => bc[c]).map(([c, title]) => {
+    const groups = Object.entries(bc[c]), book = ([id, w]) => {
+      const he = w.he.replace(/^גמרא |^משנה /, ''), href = `#/read/${id}/${w.secs[0]}`;
+      if (PARSHIYOT[id]) return { label: he, sub: w.en, kids: [{ label: 'כל הספר · Whole book', href }, ...PARSHIYOT[id].map(([h, e, ch, v]) => ({ label: h, sub: e, href: `#/read/${id}/${ch}/${v}` }))] };
+      return { label: he, href };
+    };
+    if (groups.length === 1) return { label: title, kids: groups[0][1].map(book) };
+    return { label: title, kids: groups.map(([g, list]) => ({ label: HEGROUP[g] || g, kids: list.map(book) })) };
+  });
+}
+function menuRender() {
+  const drop = $('.menu .drop'); if (!drop) return;
+  const ae = document.activeElement && drop.contains(document.activeElement) ? document.activeElement : null, fc = ae && ae.dataset ? [ae.dataset.c, ae.dataset.k] : null, sc = [...drop.querySelectorAll('.mcol')].map(x => x.scrollTop);
+  const cols = [MENU]; let cur = MENU;
+  for (const i of menuPath) { const it = cur[i]; if (it && it.kids) { cols.push(it.kids); cur = it.kids; } else break; }
+  drop.innerHTML = cols.map((items, ci) => `<div class="mcol" data-c="${ci}">${items.map((it, k) => it.href ? `<a class="mi" href="${it.href}" data-c="${ci}" data-k="${k}">${esc(it.label)}${it.sub ? ` <small>${esc(it.sub)}</small>` : ''}</a>` : `<button type="button" class="mi has ${menuPath[ci] === k ? 'on' : ''}" data-c="${ci}" data-k="${k}" aria-expanded="${menuPath[ci] === k}">${esc(it.label)}${it.sub ? ` <small>${esc(it.sub)}</small>` : ''} <span class="arr" aria-hidden="true">▸</span></button>`).join('')}</div>`).join('');
+  drop.querySelectorAll('.mcol').forEach((x, i) => { if (sc[i]) x.scrollTop = sc[i]; });
+  if (fc) { const t = drop.querySelector(`.mi[data-c="${fc[0]}"][data-k="${fc[1]}"]`); if (t) t.focus({ preventScroll: true }); }
+}
 function buildMenu() {
-  const bc = booksByCat(), drop = $('.menu .drop'); if (!drop) return;
-  drop.innerHTML = catList().filter(([c]) => bc[c]).map(([c, title]) => `<div class="col"><b>${title}</b>${Object.entries(bc[c]).map(([g, list]) => `<div class="grp">${HEGROUP[g] || g}</div>${list.map(([id, w]) => `<a href="#/read/${id}/${w.secs[0]}">${esc(w.he.replace(/^גמרא |^משנה /, ''))}</a>`).join('')}`).join('')}</div>`).join('');
+  const drop = $('.menu .drop'); if (!drop) return;
+  MENU = menuTree(); menuPath = []; menuRender();
+  if (drop._bound) return; drop._bound = true;
+  const open = el => { const c = +el.dataset.c, k = +el.dataset.k; if (el.tagName === 'A') { menuPath = menuPath.slice(0, c); } else if (menuPath[c] !== k || menuPath.length !== c + 1) { menuPath = menuPath.slice(0, c).concat(k); } else return; menuRender(); const n = drop.querySelector(`.mcol[data-c="${c + 1}"]`); if (n && el.matches(':focus')) { } };
+  drop.addEventListener('mouseover', e => { const el = e.target.closest('.mi'); if (el && el.classList.contains('has')) open(el); });
+  drop.addEventListener('focusin', e => { const el = e.target.closest('.mi'); if (el && el.classList.contains('has')) open(el); });
+  drop.addEventListener('click', e => { const el = e.target.closest('.mi'); if (!el) return; if (el.tagName === 'A') { document.activeElement && document.activeElement.blur(); return; } open(el); });
+  drop.addEventListener('keydown', e => { const el = e.target.closest('.mi'); if (!el) return; const c = +el.dataset.c, k = +el.dataset.k;
+    const go = (cc, kk) => { const t = drop.querySelector(`.mi[data-c="${cc}"][data-k="${kk}"]`); if (t) { t.focus(); e.preventDefault(); } };
+    if (e.key === 'ArrowDown') go(c, k + 1); else if (e.key === 'ArrowUp') go(c, k - 1);
+    else if (e.key === 'ArrowRight' || e.key === 'ArrowLeft') { if (el.classList.contains('has')) { open(el); go(c + 1, 0); } }
+    if (e.key === 'ArrowLeft' && c > 0) { go(c - 1, menuPath[c - 1] ?? 0); } });
 }
 const layoutsLoaded = {};
 async function ensureLayouts(work) {
@@ -339,8 +380,9 @@ function segHTML(sg, num, nc, lead) {
 }
 
 // ---------- Vilna-style layout (tzuras hadaf) for every kind of book, with a live choice of mefarshim
-const TZ_DEFAULT = { daf: { inner: ['Rashi'], outer: ['Tosafot'] }, mishnah: { inner: ['Bartenura'], outer: ['Tosafot Yom Tov', 'Ikar Tosafot Yom Tov'] }, tanakh: { inner: ['Rashi'], outer: ['Ibn Ezra', 'Ramban'] } };
-const tzKind = () => S.W.type === 'daf' ? 'daf' : /^mishnah-/.test(S.work) ? 'mishnah' : /^tanakh-/.test(S.work) ? 'tanakh' : 'other';
+const TZ_DEFAULT = { daf: { inner: ['Rashi'], outer: ['Tosafot'] }, mishnah: { inner: ['Bartenura'], outer: ['Tosafot Yom Tov', 'Ikar Tosafot Yom Tov'] }, tanakh: { inner: ['Rashi'], outer: ['Ibn Ezra', 'Ramban'] }, chumash: { inner: ['Onkelos'], outer: ['Rashi'] } };
+const CHUMASH = ['tanakh-genesis', 'tanakh-exodus', 'tanakh-leviticus', 'tanakh-numbers', 'tanakh-deuteronomy'];
+const tzKind = () => S.W.type === 'daf' ? 'daf' : /^mishnah-/.test(S.work) ? 'mishnah' : CHUMASH.includes(S.work) ? 'chumash' : /^tanakh-/.test(S.work) ? 'tanakh' : 'other';
 function tzAvail() { const c = {}; S.data.comments.forEach(x => c[x.who] = (c[x.who] || 0) + 1); return Object.entries(c).sort((a, b) => b[1] - a[1]).map(([who, n]) => ({ who, n })); }
 function tzCfg() {
   const av = new Set(tzAvail().map(x => x.who)), kind = tzKind(), d = TZ_DEFAULT[kind] || { inner: [], outer: [] };
