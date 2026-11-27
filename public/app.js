@@ -133,7 +133,7 @@ async function loadCatalog() {
     for (const b of cat.books) {
       const daf = b.type === 'daf';
       WORKS[b.id] = { cat: b.cat, group: b.group, order: b.order, he: (b.cat === 'Talmud' ? 'גמרא ' : '') + b.he, en: (b.cat === 'Talmud' ? 'Gemara ' : '') + b.title, type: b.type, secs: b.secs,
-        label: daf ? dafLabel : (s => (b.secLabels && b.secLabels[s]) || ((b.secWord || 'פרק') + ' ' + (/^\d+$/.test(s) ? gem(+s) : s))), lab2: daf ? (s => 'Daf ' + s) : (s => (b.secWordEn || 'Chapter') + ' ' + s), num: daf ? (i => i) : (i => gem(i)), targum: b.id === 'tanakh-exodus', commentaries: b.commentaries };
+        label: daf ? dafLabel : (s => { const r = b.secLabels && b.secLabels[s] != null ? String(b.secLabels[s]).trim() : s; return (b.secWord || 'פרק') + ' ' + (/^\d+$/.test(r) ? gem(+r) : r); }), lab2: daf ? (s => 'Daf ' + s) : (s => (b.secWordEn || 'Chapter') + ' ' + (b.secLabels && b.secLabels[s] != null ? String(b.secLabels[s]).trim() : s)), num: daf ? (i => i) : (i => gem(i)), targum: b.id === 'tanakh-exodus', commentaries: b.commentaries };
     }
   } catch { /* keep the built-in books */ }
 }
