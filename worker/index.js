@@ -306,6 +306,12 @@ R('POST', '/api/groups/join', async ({ req, env, u }) => {
 });
 
 // ---- chavrusa
+R('POST', '/api/notes/:id/report', async ({ req, env, u, params }) => {
+  if (!u) return err('Log in to report', 401);
+  const b = await req.json().catch(() => ({}));
+  await env.DB.prepare('INSERT OR IGNORE INTO reports(note_id,user_id,reason,created) VALUES(?,?,?,?)').bind(+params.id, u.id, String(b.reason || '').slice(0, 300), Date.now()).run();
+  return json({ ok: true });
+});
 R('GET', '/api/chavrusa', async ({ url, env }) => {
   const t = url.searchParams.get('topic');
   const w = ["c.status='open'"], b = []; if (t) { w.push('(c.topic LIKE ? OR c.ref_label LIKE ? OR c.details LIKE ?)'); b.push(...Array(3).fill('%' + s(t, 40) + '%')); }
@@ -338,6 +344,19 @@ R('GET', '/api/inbox', async ({ env, u }) => {
   return json({ mine: mine.results, sent: sent.results });
 });
 
+// Basic abuse protection: per-IP / per-user counters in D1 (fails open if D1 errors).
+async function limited(req, env, path, u) {
+  try {
+    const ip = req.headers.get('cf-connecting-ip') || 'x';
+    const auth = /^\/api\/(register|login)$/.test(path);
+    const key = (auth ? 'a:' : 'w:') + (auth ? ip : (u ? 'u' + u.id : ip));
+    const win = auth ? 600 : 60, max = auth ? 10 : 40, now = Math.floor(Date.now() / 1000);
+    const bucket = key + ':' + Math.floor(now / win);
+    const r = await env.DB.prepare('INSERT INTO ratelimit(k,n,exp) VALUES(?,1,?) ON CONFLICT(k) DO UPDATE SET n=n+1 RETURNING n').bind(bucket, now + win * 2).first();
+    if (Math.random() < 0.02) await env.DB.prepare('DELETE FROM ratelimit WHERE exp<?').bind(now).run();
+    return r && r.n > max;
+  } catch (e) { return false; }
+}
 export default {
   async fetch(req, env) {
     const url = new URL(req.url);
@@ -355,6 +374,7 @@ export default {
         const mt = re.exec(url.pathname);
         if (mt) {
           if (m === 'POST' && req.headers.get('origin') && new URL(req.headers.get('origin')).host !== url.host) return err('bad origin', 403);
+          if (m === 'POST') { const rl = await limited(req, env, url.pathname, u); if (rl) return err('Too many requests - please wait a few minutes and try again.', 429); }
           return await f({ req, env, url, u, params: mt.groups || {} });
         }
       }

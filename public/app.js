@@ -516,13 +516,14 @@ function noteCard(n, ctx) {
    <button class="ghost sm" data-a="reply">${isQ ? t('answer') : t('comment')}</button>
    ${n.replies ? `<button class="ghost sm" data-a="open">${n.replies} ${n.replies === 1 ? 'reply' : 'replies'}</button>` : ''}
    ${isQ ? `<button class="ghost sm" data-a="dup">${t('dup')}</button>` : ''}${n.kind === 'answer' && ctx.asker && !n.accepted ? `<button class="ghost sm" data-a="acc">${t('accept')}</button>` : ''}
-   ${mine ? `<button class="ghost sm" data-a="del">${t('del')}</button>` : ''}</div><div class="replies"></div></div>`);
+   ${mine ? `<button class="ghost sm" data-a="del">${t('del')}</button>` : `<button class="ghost sm" data-a="rep" title="Report this note as inappropriate">Report</button>`}</div><div class="replies"></div></div>`);
   $$('[data-v]', el).forEach(b => b.onclick = async () => { if (!await needLogin()) return; try { const v = +b.dataset.v; const r = await api(`/notes/${n.id}/vote`, { body: { v: n.myvote === v ? 0 : v } }); ctx.onchange?.(); } catch (e) { toast(e.message); } });
   $$('.tag', el).forEach(tg => tg.onclick = () => { const s = $('[data-f=tag]'); if (s) { if (![...s.options].some(o => o.value === tg.textContent)) s.append(new Option(tg.textContent)); s.value = tg.textContent; s.onchange(); } });
   const open = async () => { const box = $('.replies', el); box.innerHTML = ''; const { notes } = await api('/notes?parent=' + n.id + '&sort=idx&limit=100'); notes.sort((a, b) => (b.accepted - a.accepted) || (b.score - a.score)); notes.forEach(r => box.append(noteCard(r, { onchange: open, asker: mine && isQ }))); };
   el.addEventListener('click', async e => {
     const b = e.target.closest('[data-a]'); if (!b) return; const a = b.dataset.a;
     if (a === 'open') open();
+    if (a === 'rep') { if (!await needLogin()) return; const why = prompt('Why are you reporting this? (spam, offensive, wrong place...)'); if (why !== null) try { await api(`/notes/${n.id}/report`, { body: { reason: why } }); toast('Thanks - reported'); } catch (er) { toast(er.message); } }
     if (a === 'reply') { if (!await needLogin()) return; replyModal(n, async () => { await open(); ctx.onchange?.(); }); }
     if (a === 'dup') { if (!await needLogin()) return; const of = prompt('Id of the original question (see its #id):'); if (of) try { await api(`/notes/${n.id}/dup`, { body: { of: +of } }); toast('Flagged'); ctx.onchange?.(); } catch (er) { toast(er.message); } }
     if (a === 'acc') try { await api(`/notes/${n.id}/accept`, { body: {} }); ctx.onchange?.(); } catch (er) { toast(er.message); }
