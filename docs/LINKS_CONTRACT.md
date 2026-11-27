@@ -55,3 +55,5 @@ Same shape as `links/`; every entry is the inverse of a link whose `to` is a pas
 
 ### Link packs (links, linksin, placement)
 `linkpacks/<book-id>/<kind>.index.json` (kind = `links` | `linksin` | `placement`) = `{"v":1,"files":["<name>",...],"secs":{"<sec>":[fileIdx,offset,length]}}`; the `files` are keys under `linkpacks/<book-id>/` (`<kind>-<stamp>-<k>.bin`, versioned, never overwritten, index uploaded last). Each `secs` entry is the exact bytes of the per-file JSON. Per-file objects (`links/`, `linksin/`, `placement/`) are still written; the Worker tries the pack first. Placement packs exist only for books rebuilt by the run that wrote them.
+
+Tanakh placement: `links_all.py --group Tanakh --placement-only` runs the same validation (links first, dibur hamatchil text check as fallback) for the Tanakh books and writes `placement/<book>/<sec>.json` (+ `linkpacks/<book>/placement.*`) in the format above; keys are `"<verse>:<commentIdx>"`. Links are left untouched.

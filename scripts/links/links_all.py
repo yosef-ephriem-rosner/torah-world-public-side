@@ -23,7 +23,7 @@ def load_catalog(cache):
 
 def main():
     ap = argparse.ArgumentParser(); ap.add_argument('--group', default='all', choices=['Tanakh', 'Mishnah', 'Talmud', 'all']); ap.add_argument('--books', default='')
-    ap.add_argument('--cache', default='cache'); ap.add_argument('--out', default='out'); ap.add_argument('--resume', action='store_true'); ap.add_argument('--no-upload', action='store_true')
+    ap.add_argument('--cache', default='cache'); ap.add_argument('--out', default='out'); ap.add_argument('--resume', action='store_true'); ap.add_argument('--no-upload', action='store_true'); ap.add_argument('--placement-only', action='store_true', help='only validate + placement (+ placement packs) for the books in scope; links are left untouched; includes Tanakh')
     a = ap.parse_args()
     books, cats = load_catalog(a.cache)
     if books: common.set_books(books)
@@ -37,23 +37,27 @@ def main():
     present = {b for b in BOOKS if any(got.get(section_key(b, s)) for s in BOOKS[b]['secs'][:3])} if books is None else set(BOOKS)
     todo = [b for b in todo if b in present or BOOKS[b]['kind'] == 'tanakh' and os.path.exists(os.path.join(a.cache, section_key(b, BOOKS[b]['secs'][0])))]
     print('2/5 one pass over links CSVs ...', flush=True); partition.partition(a.cache)
-    now = datetime.datetime.now(datetime.timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ'); allout = {}; ups = []
+    now = datetime.datetime.now(datetime.timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ'); allout = {}; ups = []; placed = []
     done_before = set()
     if a.resume:
         for b in todo:
             if r2.get(f'links/{b}.summary.json', os.path.join(a.cache, 'r2state')): done_before.add(b)
     for book in todo:
-        if book in done_before: print('skip (done):', book); continue
+        if book in done_before and not a.placement_only: print('skip (done):', book); continue
         if not os.path.exists(links_csv(a.cache, book)) or 'spool' not in links_csv(a.cache, book):
             print('no links rows for', book); open(os.path.join(a.cache, 'spool', book + '.csv'), 'a').close()
         print('==', book, flush=True)
-        if BOOKS[book]['kind'] != 'tanakh':
+        if BOOKS[book]['kind'] != 'tanakh' or a.placement_only:
             subprocess.run([sys.executable, '-I', os.path.join(here, 'validate.py'), '--book', book, '--cache', a.cache, '--out', a.out, '--catalog'] , check=True, stdout=subprocess.DEVNULL)
             rep = json.load(open(os.path.join(a.out, f'reports/links/{book}.json')))
             for sec, doc in placement.build(book, a.cache, rep).items():
                 fn = os.path.join(a.out, 'placement', book, sec + '.json'); os.makedirs(os.path.dirname(fn), exist_ok=True)
                 json.dump(doc, open(fn, 'w', encoding='utf-8'), ensure_ascii=False, separators=(',', ':')); ups.append((f'placement/{book}/{sec}.json', fn))
             for f in (f'reports/links/{book}.json', f'reports/links/{book}.placement.json'): ups.append((f, os.path.join(a.out, f)))
+        if a.placement_only:
+            if not a.no_upload:
+                ok = r2.put_many(ups); ups = [u for u, k in zip(ups, ok) if not k]
+            placed.append(book); continue
         sl, _ = sefaria_links.build(book, a.cache); sm, _ = stringmatch.build(book, a.cache)
         total = collections.Counter(); allout[book] = {}
         for sec in sorted(set(sl) | set(sm)):
@@ -68,6 +72,12 @@ def main():
         if not a.no_upload:   # upload per book: resumable if the job dies later
             ok = r2.put_many(ups); ups = [u for u, k in zip(ups, ok) if not k]
             if ups: print('   upload failures (will retry at the end):', len(ups))
+    if a.placement_only:
+        if ups: sys.exit(f'{len(ups)} placement uploads failed (re-run: safe)')
+        if not a.no_upload:
+            import pack_links
+            if not pack_links.pack({b: BOOKS[b]['secs'] for b in placed}, a.out, a.cache, kinds=('placement',)): sys.exit('some packs failed')
+        return
     # incoming links, including links of books not rebuilt in this run (read from R2)
     for b in BOOKS:
         if b in allout: continue
