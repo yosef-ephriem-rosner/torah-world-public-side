@@ -25,8 +25,9 @@ FAMILIES = {
                           sel=lambda t, c: t.startswith('Mishneh Torah,') and _is(c, 'Halakhah', 'Mishneh Torah') and 'Commentary' not in c),
     'shulchan-arukh': dict(cat='halakhah', cat_en='Halakhah', group='Shulchan Arukh', sw=('סימן', 'Siman'), pref=['Torat Emet 363', 'Maginei Eretz'],
                            sel=lambda t, c: t in SA),
-    'tur': dict(cat='halakhah', cat_en='Halakhah', group='Tur', sw=('סימן', 'Siman'), pref=['Vilna', 'Torat Emet'],
-                sel=lambda t, c: t.startswith('Tur,') and _is(c, 'Halakhah', 'Tur') and 'Commentary' not in c),
+    'tur': dict(cat='halakhah', cat_en='Halakhah', group='Tur', sw=('סימן', 'Siman'), pref=['Vilna', 'Warsaw'], sel=lambda t, c: False),
+    'rif': dict(cat='halakhah', cat_en='Halakhah', group='Rif', sw=('דף', 'Page'), pref=['Vilna'], sel=lambda t, c: t.startswith('Rif ') and c[:4] == ['Talmud', 'Bavli', 'Rishonim on Talmud', 'Rif'] and 'Commentary' not in c),
+    'rosh': dict(cat='halakhah', cat_en='Halakhah', group='Rosh', sw=('פרק', 'Chapter'), pref=['Vilna'], sel=lambda t, c: t.startswith('Rosh on ') and c[:4] == ['Talmud', 'Bavli', 'Rishonim on Talmud', 'Rosh'] and 'Commentary' not in c),
     'chinukh': dict(cat='halakhah', cat_en='Halakhah', group='Sefer HaChinukh', sw=('מצווה', 'Mitzvah'), pref=['Torat Emet', 'Vocalized', 'Minchat'],
                     sel=lambda t, c: t == 'Sefer HaChinukh'),
     'rabbah': dict(cat='midrash', cat_en='Midrash', group='Midrash Rabbah', sw=('פרשה', 'Parasha'), pref=['Midrash Rabbah', 'Wikisource'],
@@ -38,7 +39,7 @@ FAMILIES = {
 }
 
 def hebrew_books():
-    return [b for b in fetch(BOOKS_URL)['books'] if b['language'] == 'Hebrew' and b['versionTitle'] != 'merged' and b['categories'][0] in ('Midrash', 'Halakhah')]
+    return [b for b in fetch(BOOKS_URL)['books'] if b['language'] == 'Hebrew' and b['versionTitle'] != 'merged' and (b['categories'][0] in ('Midrash', 'Halakhah') or b['categories'][:3] == ['Talmud', 'Bavli', 'Rishonim on Talmud'])]
 
 def toc_order():
     out = {}
@@ -48,7 +49,10 @@ def toc_order():
             elif c.get('title'): out[c['title']] = (len(out), c.get('heTitle'))
     go({'contents': fetch(TOC_URL)}); return out
 
+TUR = {'Tur, Orach Chayim': ('Orach Chayim', 'אורח חיים'), "Tur, Yoreh De'ah": ("Yoreh De'ah", 'יורה דעה'), 'Tur, Even HaEzer': ('Even HaEzer', 'אבן העזר'), 'Tur, Choshen Mishpat': ('Choshen Mishpat', 'חושן משפט')}
+
 def family_titles(fam, books):
+    if fam == 'tur': return sorted(TUR)
     f = FAMILIES[fam]; seen = {}
     for b in books:
         if f['sel'](b['title'], b['categories']): seen[b['title']] = b['categories']
@@ -148,7 +152,12 @@ def main_title(a):
     by = collections.defaultdict(list)
     for b in books: by[b['title']].append(b)
     log = []
-    cands = load_versions(by[title], log)
+    cands = load_versions(by['Tur' if title in TUR else title], log)
+    if title in TUR:  # one site book per chelek of the Tur: keep only that node of each version
+        key = TUR[title][0]
+        for c in cands:
+            c['text'] = c['text'].get(key) if isinstance(c['text'], dict) else None
+        cands = [c for c in cands if c['text']]
     if not cands:  # nothing licensed: log it and finish cleanly (no catalog entry)
         os.makedirs(os.path.join(a.out, 'manifest'), exist_ok=True)
         json.dump({'id': f['cat'] + '-' + slug(title), 'book': title, 'skipped': log, 'note': 'no allowed license, not imported'}, open(os.path.join(a.out, 'manifest', 'skipped-' + slug(title) + '.json'), 'w'), ensure_ascii=False, indent=1)
@@ -203,7 +212,7 @@ def main_title(a):
         if s['label']: labels[s['id']] = s['label']
     order = toc.get(title, (9999, None))
     now = datetime.datetime.now(datetime.timezone.utc).isoformat(timespec='seconds')
-    entry = {'id': bid, 'title': title, 'he': base['he_title'] or toc.get(title, (0, None))[1] or title, 'cat': f['cat_en'], 'group': f['group'], 'order': order[0], 'type': 'mishnah',
+    entry = {'id': bid, 'title': title, 'he': ('טור ' + TUR[title][1] if title in TUR else None) or base['he_title'] or toc.get(title, (0, None))[1] or title, 'cat': f['cat_en'], 'group': f['group'], 'order': order[0], 'type': 'mishnah',
              'secs': [s['id'] for s in secs], 'secWord': f['sw'][0], 'secWordEn': f['sw'][1], 'commentaries': len(used), 'base_license': base['license'], 'generated': now}
     if labels: entry['secLabels'] = labels
     man = {'id': bid, 'work': work, 'family': a.family, 'book': title, 'catalog_entry': entry, 'sections': len(secs),

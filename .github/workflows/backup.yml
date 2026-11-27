@@ -28,7 +28,7 @@ jobs:
           npm install --no-save wrangler@4
           npx wrangler d1 export torah-world --remote --output backup.sql \
             --table users --table notes --table note_links --table votes --table dupflags \
-            --table groups --table memberships --table chavrusa --table responses
+            --table groups --table memberships --table chavrusa --table responses --table reports
           ls -l backup.sql
       - name: Store in R2 (backups/d1-<date>.sql)
         env:
