@@ -30,3 +30,9 @@ Environment for CLI: `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`.
 
 ## Legal rules
 Non-commercial only; credit Sefaria; per-text licenses are recorded and respected; no ArtScroll/Oz Vehadar/Steinsaltz material; only openly licensed fonts.
+
+## Added 2026-11-27
+- Nightly backup: .github/workflows/backup.yml -> R2 backups/d1-<date>.sql (restore: wrangler d1 execute --file).
+- Rate limits: worker `limited()` (D1 table ratelimit). Reports: D1 table reports (read with wrangler d1 execute).
+- PWA: public/manifest.webmanifest, sw.js (network-first), icons.
+- Add new books: import workflows -> catalog/*.json; then links_all (group=<Category>, --packs-only) and the Build search index workflow (extra).
