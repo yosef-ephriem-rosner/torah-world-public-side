@@ -164,6 +164,12 @@ R('GET', '/api/catalog', async ({ env }) => {
   if (!books.size) return err('no catalog yet', 404);
   return json({ schema: 1, books: [...books.values()] }, 200, { 'cache-control': 'public, max-age=300' });
 });
+R('GET', '/api/manifest', async ({ url, env }) => {
+  const work = url.searchParams.get('work'); if (!WORKS[work]) return err('bad book');
+  const o = await env.R2.get('manifest/' + work + '.json'); if (!o) return err('no manifest for this book', 404);
+  const m = await o.json();
+  return json({ book: m.book, base: m.base, commentaries: (m.commentaries || []).map(c => ({ who: c.who, title: c.title, version: c.version, license: c.license, source: c.source })), skipped: m.skipped || [], note: m.note }, 200, { 'cache-control': 'public, max-age=600' });
+});
 R('GET', '/api/links', async ({ url, env }) => {
   const work = url.searchParams.get('work'), sec = url.searchParams.get('sec');
   if (!WORKS[work] || !sec || !/^[0-9A-Za-z.:_-]{1,30}$/.test(sec)) return err('bad ref');

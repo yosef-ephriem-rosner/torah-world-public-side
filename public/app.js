@@ -220,6 +220,9 @@ function route() {
   window.scrollTo(0, 0);
   if (p[0] === 'read') { if (ALIAS[p[1]]) { location.replace('#/read/' + ALIAS[p[1]] + '/' + (p[2] || '') + (p[3] ? '/' + p[3] : '')); return; } return readPage(p[1], decodeURIComponent(p[2] || ''), p[3] ? +p[3] : null); }
   if (p[0] === 'chavrusa') return chavrusaPage();
+  if (p[0] === 'about') return aboutPage(); if (p[0] === 'terms') return textPage('terms'); if (p[0] === 'privacy') return textPage('privacy');
+  if (p[0] === 'bookmarks') return bookmarksPage();
+  if (p[0] === 'shelf') return shelfPage(p[1], decodeURIComponent(p[2] || ''), decodeURIComponent(p[3] || ''));
   if (p[0] === 'search') return searchPage(new URLSearchParams(qs).get('q') || '');
   if (p[0] === 'me') return mePage();
   return home();
@@ -232,6 +235,7 @@ function home() {
   app.innerHTML = `<div class="hero"><h1>עולם התורה</h1><p class="mut">Learn the text. Add your notes and questions right on the words. See the mefarshim and links beside it.</p>
     <form class="finder" id="finder" role="search" aria-label="Find a book"><input id="bookq" type="search" placeholder="Find a book… (e.g. Berakhot, תהילים)" aria-label="Find a book" autocomplete="off"><button>Find</button></form>
     <div class="mut" style="font-size:13px">${total} books · press <kbd>/</kbd> to search the texts</div></div>
+  ${bookmarks().filter(b => WORKS[b.work]).length ? `<section class="recent"><h2>Bookmarks</h2><div class="chips">${bookmarks().filter(b => WORKS[b.work]).slice(0, 8).map(b => `<a class="chip" href="#/read/${b.work}/${b.sec}">${esc(secLabel(b.work, b.sec))}</a>`).join('')}</div><p><a href="#/bookmarks">All bookmarks</a></p></section>` : ''}
   ${recent.length ? `<section class="recent"><h2>Continue reading</h2><div class="chips">${recent.map(r => `<a class="chip" href="#/read/${r.work}/${r.sec}">${esc(secLabel(r.work, r.sec))}</a>`).join('')}</div></section>` : ''}
   <div id="cats">${catList().filter(([c]) => bc[c]).map(([c, title], i) => { const n = Object.values(bc[c]).reduce((a, l) => a + l.length, 0); return `<details class="cat" ${i < 3 ? 'open' : ''}><summary>${title} <span class="count">${n} books</span></summary>${Object.entries(bc[c]).map(([g, list]) => `<div class="grpbox"><div class="mut" style="margin:8px 0 4px;font-size:13px">${HEGROUP[g] || g}</div><div class="chips">${list.map(([id, w]) => `<a class="chip" data-q="${esc((w.he + ' ' + w.en).toLowerCase())}" href="#/read/${id}/${w.secs[0]}">${esc(w.he.replace(/^גמרא |^משנה /, ''))}</a>`).join('')}</div></div>`).join('')}</details>`; }).join('')}</div>
   <h2 style="font-size:18px;margin:18px 0 6px">חברותא</h2><div class="grid"><a class="card tile" href="#/chavrusa"><b>חברותא</b><div class="mut">Find a learning partner — now or scheduled</div></a></div>
@@ -260,6 +264,7 @@ async function readPage(work, sec, sel) {
       <div class="pager"><button class="ghost icon" id="prev" aria-label="Previous ${type === 'daf' ? 'page' : 'section'} (arrow key)" ${i ? '' : 'disabled'}>◀</button>
         <select id="secsel" aria-label="Go to ${type === 'daf' ? 'page' : 'chapter'}">${W.secs.map(s => `<option value="${s}" ${s === sec ? 'selected' : ''}>${W.label(s)} (${W.lab2(s)})</option>`).join('')}</select>
         <button class="ghost icon" id="next" aria-label="Next ${type === 'daf' ? 'page' : 'section'} (arrow key)" ${i < W.secs.length - 1 ? '' : 'disabled'}>▶</button></div>
+      <button class="ghost icon" id="bm" aria-label="Bookmark this page" aria-pressed="${isBookmarked(work, sec)}" title="Bookmark">${isBookmarked(work, sec) ? '★' : '☆'}</button>
       <button class="ghost only-sheet" id="opensb" aria-label="Open commentary and notes panel">☰ Panel</button>
       <details class="view" id="viewmenu"><summary>⚙ View</summary><div class="viewpanel">
         ${type === 'daf' ? `<h4>Layout</h4><select id="dview" aria-label="Page layout"><option value="page" ${dafView() === 'page' ? 'selected' : ''}>צורת הדף · Printed page (fixed)</option><option value="live" ${dafView() === 'live' ? 'selected' : ''}>Adaptive layout (fits window)</option><option value="simple" ${dafView() === 'simple' ? 'selected' : ''}>Simple text (best on phones)</option></select>` : ''}
@@ -286,6 +291,7 @@ async function readPage(work, sec, sel) {
   if ($('#ltaam')) $('#ltaam').onchange = e => { pref.set('taamim', e.target.checked); renderText().then(paintHighlights); };
   if ($('#dview')) $('#dview').onchange = e => { localStorage.dafView = e.target.value; applyView(); renderText().then(paintHighlights); };
   $('#lnk').onchange = e => { localStorage.setItem('nikud:' + type, e.target.checked ? '1' : '0'); renderText().then(paintHighlights); };
+  $('#bm').onclick = () => { const on = toggleBookmark(work, sec); $('#bm').textContent = on ? '★' : '☆'; $('#bm').setAttribute('aria-pressed', on); toast(on ? 'Bookmarked' : 'Bookmark removed'); };
   $('#opensb').onclick = () => { $('#side').classList.add('open'); $('#bd').hidden = false; };
   $('#bd').onclick = () => { if (S.sel) selectSeg(null); $('#side').classList.remove('open'); $('#bd').hidden = true; };
   applyView();
@@ -425,7 +431,7 @@ function linkCount(sel, xr) {
 function renderSide() {
   const { data, sel, W } = S, side = $('#side');
   const hidden = new Set(pref.get('hiddenWho', []));
-  const whoBlock = (who, list, open) => { const d = h(`<details class="cm" ${open ? 'open' : ''}><summary>${esc(HEWHO[who] || who)} <span class="mut">${esc(who)} · ${list.length}</span></summary></details>`); list.forEach(c => { const x = document.createElement('div'); x.className = 'cmt'; x.innerHTML = dhBold(c.he, who); d.append(x); }); return d; };
+  const whoBlock = (who, list, open) => { const d = h(`<details class="cm" ${open ? 'open' : ''}><summary>${esc(HEWHO[who] || who)} <span class="mut">${esc(who)} · ${list.length}</span></summary><div class="cmt-tools"><a href="#/shelf/${S.work}/${encodeURIComponent(S.sec)}/${encodeURIComponent(who)}">Read ${esc(who)} on its own page ↗</a></div></details>`); list.forEach(c => { const x = document.createElement('div'); x.className = 'cmt'; x.innerHTML = dhBold(c.he, who); d.append(x); }); return d; };
   if (!sel) {
     side.innerHTML = `<div class="inner"><p class="mut">Click a ${t('seg').toLowerCase()} to see its commentary and links. Select words to attach a note to them.</p><div id="pgc"></div><h2 style="font-size:17px">${t('notes')} — ${W.label(S.sec)}</h2><div id="nb"></div></div>`;
     const pg = data.comments.filter(c => c.idx === 0);
@@ -582,6 +588,66 @@ async function searchPage(q) {
     if (mb) mb.onclick = async () => { mb.disabled = true; try { const r2 = await run(nxt); $('#so-r').insertAdjacentHTML('beforeend', r2.text.map(card).join('')); nxt = r2.next; if (!r2.more) mb.remove(); else mb.disabled = false; } catch (e) { toast(e.message); mb.disabled = false; } };
   } catch (e) { app.innerHTML = '<p class="err">' + esc(e.message) + '</p>'; }
 }
+
+// ---------- about / licenses, terms, privacy
+async function aboutPage() {
+  document.title = 'About & licenses — Torah World';
+  const opts = Object.entries(WORKS).sort((a, b) => (a[1].order ?? 0) - (b[1].order ?? 0)).map(([id, w]) => `<option value="${esc(id)}">${esc(w.he)} — ${esc(w.en)}</option>`).join('');
+  app.innerHTML = `<h1 style="font-size:30px">About &amp; licenses</h1>
+  <div class="card"><h2 style="font-size:19px">What this is</h2><p>Torah World is a free, non-commercial site for learning Tanach, Mishnah, Gemara and many other sefarim with their mefarshim, with notes, questions and answers anchored to exact words, and a chavrusa board.</p>
+  <h2 style="font-size:19px">Where the texts come from</h2><p>All texts and commentaries come from <a href="https://www.sefaria.org" target="_blank" rel="noopener">Sefaria</a>'s official open data export. Every text keeps its own license (Public Domain, CC0, CC-BY, CC-BY-SA or CC-BY-NC) and its own credit, shown below for each book and also under every page you read. Texts whose license is unknown or restricted are not copied. Because some texts are CC-BY-NC, the whole site is <b>non-commercial</b>.</p>
+  <h2 style="font-size:19px">Code</h2><p>The site's code is published at <a href="https://github.com/yosef-ephriem-rosner/torah-world-public-side" target="_blank" rel="noopener">github.com/yosef-ephriem-rosner/torah-world-public-side</a> under the PolyForm Noncommercial License. The Vilna-style page layout uses the open-source <a href="https://github.com/TalmudLab/daf-renderer" target="_blank" rel="noopener">daf-renderer</a> (MIT); fonts are Frank Ruhl Libre and Noto Rashi Hebrew (SIL Open Font License).</p>
+  <p class="mut"><a href="#/terms">Terms</a> · <a href="#/privacy">Privacy</a></p></div>
+  <div class="card"><h2 style="font-size:19px">Sources &amp; licenses by book</h2><div class="row"><label for="abook">Book</label><select id="abook">${opts}</select></div><div id="alic" class="mut">Choose a book.</div></div>`;
+  const show = async () => {
+    const id = $('#abook').value, box = $('#alic'); box.innerHTML = 'Loading…';
+    try {
+      const m = await api('/manifest?work=' + encodeURIComponent(id)), lic = x => `${esc(x.license)}${x.source ? ` · <a href="${esc(x.source)}" target="_blank" rel="noopener">source</a>` : ''}`;
+      box.innerHTML = `<table class="lic"><thead><tr><th>Text</th><th>Version</th><th>License</th></tr></thead><tbody><tr><td><b>${esc(m.book || id)}</b></td><td>${esc(m.base.version)}</td><td>${lic(m.base)}</td></tr>${m.commentaries.map(c => `<tr><td>${esc(c.who)}</td><td>${esc(c.version || '')}</td><td>${lic(c)}</td></tr>`).join('')}</tbody></table>${m.skipped.length ? `<p class="mut" style="font-size:13px">Not included (no allowed license): ${esc([...new Set(m.skipped.map(s => s.title))].join(', '))}</p>` : ''}`;
+    } catch (e) { box.textContent = 'No license list is available for this book yet (' + e.message + ').'; }
+  };
+  $('#abook').onchange = show; show();
+}
+const TEXTS = {
+  terms: ['Terms of use (draft)', ['These terms are a draft and not legal advice; they will be finalized before a public launch.', 'Torah World is free and non-commercial. Do not use it, or its texts, for commercial purposes.', 'The texts come from Sefaria and keep their own licenses and credits (see About &amp; licenses). You may use them only as those licenses allow.', 'Notes, questions and answers are written by users. They are opinions of their authors, labelled with a self-declared level, and are not rabbinic rulings (psak). For a halachic question ask your rav.', 'By posting a public note you allow other users to read it on this site. You can delete your own notes at any time. Private notes are visible only to you.', 'Do not post unlawful, abusive or misleading content, spam, or other people\'s private information. We may remove content or accounts that break these rules.', 'The site is provided as is, without any warranty.']],
+  privacy: ['Privacy (draft)', ['This page is a draft and not legal advice.', 'What we store: your chosen username, your self-declared level, a salted hash of your passcode (we cannot read your passcode), your notes, questions, answers, votes, groups you join, and your chavrusa posts and messages.', 'We do not ask for your email or real name and we use no advertising or tracking cookies. One sign-in cookie keeps you logged in (90 days). Your reading preferences (text size, dark mode, recent pages, bookmarks) are stored only in your own browser.', 'Cloudflare hosts the site and processes the web requests, which can include technical data such as IP addresses.', 'Private notes are visible only to you; public notes are visible to everyone; "professionals only" and "group only" notes are visible to the people those labels allow.', 'To delete an account or notes, delete your notes in the site or ask the site owner.']]
+};
+function textPage(k) {
+  const [title, paras] = TEXTS[k]; document.title = title + ' — Torah World';
+  app.innerHTML = `<h1 style="font-size:30px">${title}</h1><div class="card">${paras.map(p => `<p>${p}</p>`).join('')}<p class="mut"><a href="#/about">About &amp; licenses</a> · <a href="#/terms">Terms</a> · <a href="#/privacy">Privacy</a></p></div>`;
+}
+
+// ---------- bookmarks (kept in this browser)
+const bookmarks = () => pref.get('bookmarks', []);
+const isBookmarked = (w, s) => bookmarks().some(b => b.work === w && b.sec === s);
+function toggleBookmark(w, s) { const b = bookmarks(); const i = b.findIndex(x => x.work === w && x.sec === s); if (i >= 0) b.splice(i, 1); else b.unshift({ work: w, sec: s, t: Date.now() }); pref.set('bookmarks', b.slice(0, 200)); return i < 0; }
+function bookmarksPage() {
+  document.title = 'Bookmarks — Torah World'; const b = bookmarks().filter(x => WORKS[x.work]);
+  app.innerHTML = `<h1 style="font-size:30px">Bookmarks</h1><p class="mut">Saved pages are kept in this browser.</p>${b.length ? `<div class="chips">${b.map(x => `<a class="chip" href="#/read/${x.work}/${x.sec}">${esc(secLabel(x.work, x.sec))}</a>`).join('')}</div>` : '<div class="empty">No bookmarks yet. Use the ☆ button on any page.</div>'}`;
+}
+
+// ---------- one mefaresh on its own page
+async function shelfPage(work, sec, who) {
+  const my = ++navId, W = WORKS[work]; if (!W) return home();
+  if (!sec || !W.secs.includes(sec)) sec = W.secs[0];
+  app.innerHTML = '<div class="skel" style="width:40%;height:28px"></div><div class="skel"></div><div class="skel"></div>';
+  let data; try { data = await api(`/section?work=${work}&sec=${encodeURIComponent(sec)}`); } catch (e) { if (my === navId) app.innerHTML = `<div class="empty"><h1>Not available yet</h1><p>${esc(e.message)}</p><p><a href="#/read/${work}/${W.secs[0]}">Back to the book</a></p></div>`; return; }
+  if (my !== navId) return;
+  S = null; const whos = [...new Set(data.comments.map(c => c.who))].sort(whoSort); if (!who || !whos.includes(who)) who = whos[0] || '';
+  const mine = data.comments.filter(c => c.who === who).sort((a, b) => (a.idx || 0) - (b.idx || 0) || a.n - b.n);
+  const seg = Object.fromEntries(data.segments.map(s => [s.idx, s.he])), i = W.secs.indexOf(sec), go = k => W.secs[k] != null ? `#/shelf/${work}/${encodeURIComponent(W.secs[k])}/${encodeURIComponent(who)}` : null;
+  const snippet = idx => { const he = (seg[idx] || '').replace(/<[^>]+>/g, '').replace(/[֑-ׇ]/g, ''); const w = he.split(/\s+/).slice(0, 10).join(' '); return w ? w + (he.split(/\s+/).length > 10 ? ' …' : '') : ''; };
+  document.title = `${who} on ${W.he} ${W.label(sec)} — Torah World`;
+  app.innerHTML = `<nav class="crumbs" aria-label="Breadcrumb"><a href="#/">Home</a> › <a href="#/read/${work}/${sec}">${esc(W.he)} ${esc(W.label(sec))}</a> › <span>${esc(who)}</span></nav>
+   <div class="rbar" id="rbar"><h1 class="he">${esc(HEWHO[who] || who)} · ${esc(W.he)} · ${esc(W.label(sec))}</h1>
+   <div class="pager">${go(i - 1) ? `<a class="ghost icon" style="display:inline-flex;align-items:center;border:1px solid var(--line);border-radius:8px;padding:6px 12px;text-decoration:none" href="${go(i - 1)}" aria-label="Previous section">◀</a>` : ''}
+   <select id="swho" aria-label="Choose a mefaresh">${whos.map(x => `<option value="${esc(x)}" ${x === who ? 'selected' : ''}>${esc(HEWHO[x] || x)} (${data.comments.filter(c => c.who === x).length})</option>`).join('')}</select>
+   ${go(i + 1) ? `<a class="ghost icon" style="display:inline-flex;align-items:center;border:1px solid var(--line);border-radius:8px;padding:6px 12px;text-decoration:none" href="${go(i + 1)}" aria-label="Next section">▶</a>` : ''}</div></div>
+   <div class="card" style="--cs:${pref.get('cs', 1)}">${mine.length ? mine.map(c => `<div class="shelfc"><div class="mut" style="font-size:12px">${c.idx ? `<a href="#/read/${work}/${sec}/${c.idx}">${W.num(c.idx)} · ${esc(snippet(c.idx))}</a>` : 'whole page'}</div><div class="cmt">${dhBold(c.he, who)}</div></div>`).join('') : `<p class="mut">No comments by ${esc(who)} on this section.</p>`}</div>`;
+  $('#swho').onchange = e => location.hash = `#/shelf/${work}/${encodeURIComponent(sec)}/${encodeURIComponent(e.target.value)}`;
+  S = { work, sec, W, data, sel: null, notes: [], links: { links: [], incoming: [] } }; S.W = W;
+}
+
 // ---------- chavrusa
 async function chavrusaPage() {
   app.innerHTML = `<h1 style="font-size:28px">חברותא · Chavrusa board</h1><div class="card"><b>Looking for a chavrusa?</b>
