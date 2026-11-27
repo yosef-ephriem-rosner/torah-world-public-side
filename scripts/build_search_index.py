@@ -123,7 +123,8 @@ def cmd_merge(a):
     parts = []
     for f in files:
         with gzip.open(os.path.join(a.partials, f), 'rt', encoding='utf-8') as fh: parts.append(json.load(fh))
-    parts.sort(key=lambda p: p['book'])                      # category prefix first -> categories are contiguous gid ranges
+    CAT_ORDER = ['tanakh', 'mishnah', 'bavli', 'yerushalmi', 'tosefta', 'midrash', 'halakhah', 'kabbalah', 'chasidut', 'musar', 'liturgy']   # results come in this order (base texts first)
+    parts.sort(key=lambda p: (CAT_ORDER.index(p['book'].split('-')[0]) if p['book'].split('-')[0] in CAT_ORDER else 99, p['book']))   # categories stay contiguous gid ranges
     whos = {}                                                 # global commentator ids start at 1
     for p in parts:
         for w in p['who']: whos.setdefault(w['who'], {'id': len(whos) + 1, 'name': w['who'], 'he': w.get('he')})
