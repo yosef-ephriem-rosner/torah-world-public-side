@@ -10,7 +10,22 @@ import r2
 from concurrent.futures import ThreadPoolExecutor
 SMALL_FILES = 60   # books with <= this many sections also get per-file objects
 
+_PACKS = {}
+def pack_blobs(book):
+    """packs/<book>/ (newer imports): {sec: bytes}; {} when the book has no pack"""
+    if book in _PACKS: return _PACKS[book]
+    out = {}
+    try:
+        ix = json.loads(r2.rest_get(f'packs/{book}/index.json')); blobs = {}
+        for sec, (fi, off, ln) in ix['secs'].items():
+            if fi not in blobs: blobs[fi] = r2.rest_get(f'packs/{book}/{ix["files"][fi]}')
+            out[sec] = blobs[fi][off:off + ln]
+    except Exception: out = {}
+    _PACKS[book] = out; return out
+
 def load_sec(cache, book, sec):
+    pb = pack_blobs(book)
+    if sec in pb: return json.loads(pb[sec])
     d = book.replace('-', '/', 1); fn = os.path.join(cache, 'sections', d, sec + '.json')
     if os.path.exists(fn) and os.path.getsize(fn): return json.load(open(fn, encoding='utf-8'))
     try: b = r2.rest_get(f'sections/{d}/{sec}.json')
@@ -59,7 +74,9 @@ def main():
     ap = argparse.ArgumentParser(); ap.add_argument('--books', default=''); ap.add_argument('--group', default=''); ap.add_argument('--out', default='out'); ap.add_argument('--cache', default='cache')
     ap.add_argument('--no-upload', action='store_true'); ap.add_argument('--threads', type=int, default=4)
     a = ap.parse_args()
-    cat = json.loads(r2.rest_get('catalog.json'))['books']
+    cat = []
+    for k in r2.rest_list('catalog'):
+        if k == 'catalog.json' or (k.startswith('catalog/') and k.endswith('.json')): cat += json.loads(r2.rest_get(k))['books']
     sel = [b for b in cat if b['id'] in a.books.split(',')] if a.books else [b for b in cat if b.get('cat') in a.group.split(',')]
     from upload_r2 import call, account, API
     base = f'{API}/accounts/{account()}/r2/buckets/{r2.BUCKET}/objects/'
@@ -67,9 +84,10 @@ def main():
     put = lambda key, data, ct: call('PUT', base + urllib.parse.quote(key, safe='/'), data, ct)
     stamp = time.strftime('%Y%m%d%H%M%S', time.gmtime()); fails = []
     for b in sel:
-        book = b['id']; kind = 'tanakh' if b.get('cat') == 'Tanakh' else 'prose'
+        book = b['id']; kind = 'tanakh' if b.get('cat') == 'Tanakh' else 'prose'; print('start', book, len(b['secs']), flush=True)
         t0 = time.time()
-        datas = list(ThreadPoolExecutor(a.threads).map(lambda s: load_sec(a.cache, book, s), b['secs']))
+        pack_blobs(book); datas = list(ThreadPoolExecutor(a.threads).map(lambda s: load_sec(a.cache, book, s), b['secs']))
+        _PACKS.pop(book, None)
         res = {}; agg = dict(segs=0, split=0, clauses=0, words=0, comments=0, assigned=0); per = collections.defaultdict(lambda: [0, 0]); samples = []
         for sec, d in zip(b['secs'], datas):
             if not d: continue
@@ -91,7 +109,7 @@ def main():
         for sec, bl in blobs.items():
             fn = f'{a.out}/clauses/{book.replace("-", "/", 1)}/{sec}.json'; os.makedirs(os.path.dirname(fn), exist_ok=True); open(fn, 'wb').write(bl)
         objs = pack_book(book, blobs, stamp)
-        if len(blobs) <= SMALL_FILES: objs = [(f'clauses/{book.replace("-", "/", 1)}/{s}.json', bl, 'application/json; charset=utf-8') for s, bl in blobs.items()] + objs
+        if len(blobs) <= SMALL_FILES and b.get('cat') in ('Tanakh', 'Mishnah', 'Talmud'): objs = [(f'clauses/{book.replace("-", "/", 1)}/{s}.json', bl, 'application/json; charset=utf-8') for s, bl in blobs.items()] + objs
         objs.append((f'reports/clauses/{book}.json', open(f'{a.out}/reports/clauses/{book}.json', 'rb').read(), 'application/json; charset=utf-8'))
         if not a.no_upload:
             # packs first, index last, then per-file + report (pack index is objs[-?]: keep order, report after)
