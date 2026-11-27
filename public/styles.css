@@ -114,3 +114,7 @@ b.dh{cursor:pointer;text-decoration:underline dotted}
 .drop .mi:hover,.drop .mi:focus-visible,.drop .mi.on{background:rgba(31,78,121,.1)}
 .drop .mi .arr{color:var(--mut)}
 @media(max-width:700px){.drop{flex-direction:column;width:94vw}.drop .mcol{max-width:none;max-height:34vh;border-inline-end:0;border-bottom:1px solid var(--line)}}
+
+.w.clsel{background:rgba(255,213,79,.35);border-radius:3px}
+.clbanner{display:flex;gap:8px;align-items:center;justify-content:space-between;background:rgba(255,213,79,.18);border-radius:8px;padding:6px 10px;margin-bottom:8px;font-size:13px}
+.brk .w.cs0::before{content:"\A";white-space:pre}

@@ -78,7 +78,7 @@ function authModal(msg) {
 }
 async function needLogin() { if (ME) return true; await authModal('Please log in to do that.'); return !!ME; }
 // ---------- text rendering
-function wrapWords(html, start = 0) {
+function wrapWords(html, start = 0, cuts = null) {
   const div = document.createElement('div'); div.innerHTML = html; let n = start;
   const walk = document.createTreeWalker(div, NodeFilter.SHOW_TEXT), nodes = []; while (walk.nextNode()) nodes.push(walk.currentNode);
   for (const tn of nodes) {
@@ -86,7 +86,9 @@ function wrapWords(html, start = 0) {
     for (const part of tn.nodeValue.split(/(\s+)/)) {
       if (!part) continue;
       if (/^\s+$/.test(part)) { frag.append(' '); continue; }
-      const sp = document.createElement('span'); sp.className = 'w'; sp.dataset.w = n++;
+      const sp = document.createElement('span'); sp.className = 'w'; sp.dataset.w = n;
+      if (cuts) { let c = 0; for (let q = 0; q < cuts.length; q++) if (cuts[q] <= n) c = q; sp.dataset.cl = c; if (c > 0 && cuts[c] === n) sp.className = 'w cs0'; }
+      n++;
       if (part === '{פ}' || part === '{ס}') { sp.className = 'w ' + (part === '{פ}' ? 'pet' : 'set'); sp.textContent = part[1]; } else sp.textContent = part;
       frag.append(sp);
     }
@@ -331,7 +333,7 @@ async function readPage(work, sec, sel) {
       <details class="view" id="viewmenu"><summary>⚙ View</summary><div class="viewpanel">
         ${type !== 'daf' && tzKind() !== 'other' ? `<h4>Layout</h4><select id="tview" aria-label="Page layout"><option value="page" ${tzOn() ? 'selected' : ''}>צורת הדף · Vilna-style page with mefarshim</option><option value="simple" ${tzOn() ? '' : 'selected'}>Simple text</option></select>` : ''}
         ${type === 'daf' ? `<h4>Layout</h4><select id="dview" aria-label="Page layout"><option value="page" ${dafView() === 'page' ? 'selected' : ''}>צורת הדף · Printed page (fixed)</option><option value="live" ${dafView() === 'live' ? 'selected' : ''}>Adaptive layout (fits window)</option><option value="simple" ${dafView() === 'simple' ? 'selected' : ''}>Simple text (best on phones)</option></select>` : ''}
-        <h4>Text</h4>${chk('lnk', 'ניקוד · Nikud (vowels)', f.nikud)}${type === 'chumash' ? chk('ltaam', 'טעמים · Cantillation marks', f.taamim) : ''}${W.targum ? chk('ltg', 'תרגום אונקלוס · Onkelos', localStorage.targum === '1') : ''}
+        <h4>Text</h4>${chk('lnk', 'ניקוד · Nikud (vowels)', f.nikud)}${type === 'chumash' ? chk('ltaam', 'טעמים · Cantillation marks', f.taamim) : ''}${W.targum ? chk('ltg', 'תרגום אונקלוס · Onkelos', localStorage.targum === '1') : ''}${chk('lbrk', 'Short lines · one phrase per line (simple layout)', pref.get('brk', false))}
         <div class="sizer" id="sizer1"><span class="mut" style="font-size:13px;flex:1">Text size</span><button class="ghost sm" id="tdown" aria-label="Smaller text">A−</button><button class="ghost sm" id="tup" aria-label="Larger text">A+</button></div>
         <div class="sizer"><span class="mut" style="font-size:13px;flex:1">Commentary size</span><button class="ghost sm" id="cdown" aria-label="Smaller commentary text">A−</button><button class="ghost sm" id="cup" aria-label="Larger commentary text">A+</button></div>
         <h4>Show</h4>${chk('lmk', 'Markers (◆ commentary, ★ notes)', pref.get('mk', true))}${chk('lhl', 'Highlights of notes', pref.get('hl', true))}${chk('lsb', 'Side panel', pref.get('sb', true))}
@@ -355,6 +357,7 @@ async function readPage(work, sec, sel) {
   if ($('#tview')) $('#tview').onchange = e => { localStorage.setItem('tzview:' + tzKind(), e.target.value); renderText().then(paintHighlights); };
   $('#tzbtn').onclick = mefarshimModal;
   if ($('#dview')) $('#dview').onchange = e => { localStorage.dafView = e.target.value; applyView(); renderText().then(paintHighlights); };
+  $('#lbrk').onchange = e => { pref.set('brk', e.target.checked); renderText().then(paintHighlights); };
   $('#lnk').onchange = e => { localStorage.setItem('nikud:' + type, e.target.checked ? '1' : '0'); renderText().then(paintHighlights); };
   $('#bm').onclick = () => { const on = toggleBookmark(work, sec); $('#bm').textContent = on ? '★' : '☆'; $('#bm').setAttribute('aria-pressed', on); toast(on ? 'Bookmarked' : 'Bookmark removed'); };
   $('#opensb').onclick = () => { $('#side').classList.add('open'); $('#bd').hidden = false; };
@@ -375,7 +378,7 @@ function counts() {
 }
 const star = (nc, idx) => nc[idx] ? `<sup class="mk n" title="${nc[idx]} notes">★${nc[idx]}</sup>` : '';
 function segHTML(sg, num, nc, lead) {
-  const w = wrapWords(sg.he, 0);
+  const w = wrapWords(sg.he, 0, S.data && S.data.clauses && S.data.clauses[sg.idx]);
   return `<span class="sg" data-idx="${sg.idx}">${lead || ''}${num ? `<sup class="vn">${num}</sup>` : ''}${w.html}${star(nc, sg.idx)}</span> `;
 }
 
@@ -415,13 +418,14 @@ async function renderText() {
   else if (S.W.type === 'daf' || tzOn()) await renderDaf(box, nc);
   else if (S.W.type === 'chumash') renderChumash(box, nc);
   else box.innerHTML = S.data.segments.map(sg => `<p class="mish">${segHTML({ idx: sg.idx, he: stripT(sg.he) }, '', nc, `<b class="mnum">${gem(sg.idx)}.</b> `)}</p>`).join('');
+  box.classList.toggle('brk', !!pref.get('brk', false) && !(S.W.type === 'daf' || tzOn()));
   box.onmouseup = onSelect;
   box.onclick = e => {
     if (getSelection().toString().trim()) return;
     const hl = e.target.closest('.w.hl'), cs = e.target.closest('.cs'), sg = e.target.closest('.sg');
     if (hl && sg) return selectSeg(+sg.dataset.idx, 'notes');
     if (cs) return selectSeg(+cs.dataset.idx, 'commentary', cs.dataset.who);
-    if (sg) selectSeg(+sg.dataset.idx);
+    if (sg) { const w = e.target.closest('.w'); selectSeg(+sg.dataset.idx, undefined, undefined, w && w.dataset.cl != null ? +w.dataset.cl : null); }
   };
   paintHighlights();
 }
@@ -513,8 +517,10 @@ function onSelect() {
   document.body.append(selBtn);
 }
 document.addEventListener('mousedown', e => { if (selBtn && e.target !== selBtn) { selBtn.remove(); selBtn = null; } });
-function selectSeg(idx, tab, who) {
-  S.sel = idx; if (tab) S.tab = tab; S.openWho = who || null;
+function selectSeg(idx, tab, who, cl) {
+  S.sel = idx; if (tab) S.tab = tab; S.openWho = who || null; S.selCl = cl == null ? null : cl;
+  $$('.w.clsel').forEach(x => x.classList.remove('clsel'));
+  if (idx && S.selCl != null) $$(`.sg[data-idx="${idx}"] .w[data-cl="${S.selCl}"]`).forEach(x => x.classList.add('clsel'));
   $$('.sg').forEach(r => r.classList.toggle('sel', +r.dataset.idx === idx));
   if (idx) { const r = $(`.sg[data-idx="${idx}"]`); if (r && !tab) r.scrollIntoView({ block: 'nearest' }); }
   history.replaceState(null, '', `#/read/${S.work}/${S.sec}${idx ? '/' + idx : ''}`);
@@ -540,7 +546,10 @@ function renderSide() {
     }
     notesBrowser($('#nb', side), { scope: 'page' }); return;
   }
-  const cm = data.comments.filter(c => c.idx === sel), xr = data.xrefs.filter(x => x.idx === sel);
+  const cmAll = data.comments.filter(c => c.idx === sel), xr = data.xrefs.filter(x => x.idx === sel);
+  const hasCl = !!(data.clauses && data.clauses[sel]) && S.selCl != null;
+  const cm = hasCl ? cmAll.filter(c => c.cl == null || c.cl === S.selCl) : cmAll;
+  const clText = hasCl ? $$(`.sg[data-idx="${sel}"] .w[data-cl="${S.selCl}"]`).map(x => x.textContent).join(' ') : '';
   const tabBtn = (k, label) => `<button role="tab" aria-selected="${S.tab === k}" data-tab="${k}" class="${S.tab === k ? 'on' : ''}">${label}</button>`;
   side.innerHTML = `<div class="sidehead"><div class="bar"><b class="he">${esc(secLabel(S.work, S.sec))} · ${W.num(sel)}</b><button class="ghost sm" id="clr" aria-label="Close panel">✕</button></div>
     <div class="tabs" role="tablist">${tabBtn('commentary', `${t('commentary')} (${cm.length})`)}${tabBtn('links', `${t('links')} (${linkCount(sel, xr)})`)}${tabBtn('notes', t('notes'))}</div></div><div class="inner" id="tb" role="tabpanel"></div>`;
@@ -548,7 +557,8 @@ function renderSide() {
   $$('.tabs button', side).forEach(b => b.onclick = () => { S.tab = b.dataset.tab; renderSide(); });
   const tb = $('#tb', side);
   if (S.tab === 'commentary') {
-    if (!cm.length) tb.innerHTML = '<p class="mut">No imported commentary on this segment.</p>';
+    if (hasCl) { const nb = h(`<div class="clbanner"><span>Mefarshim on this phrase: <b class="he">${esc(clText)}</b>${cmAll.length > cm.length ? ` · ${cmAll.length - cm.length} more on other parts of this ${t('seg').toLowerCase()}` : ''}</span> <button class="ghost sm" id="allcl">Whole ${esc(t('seg').toLowerCase())}</button></div>`); tb.append(nb); $('#allcl', nb).onclick = () => { S.selCl = null; $$('.w.clsel').forEach(x => x.classList.remove('clsel')); renderSide(); }; }
+    if (!cm.length) tb.insertAdjacentHTML('beforeend', '<p class="mut">No imported commentary on this segment.</p>');
     const by = {}; cm.forEach(c => (by[c.who] = by[c.who] || []).push(c));
     const whos = Object.keys(by).sort(whoSort);
     if (whos.length > 3) {

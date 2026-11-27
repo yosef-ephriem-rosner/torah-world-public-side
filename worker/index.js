@@ -84,14 +84,16 @@ async function getSectionDoc(env, work, sec) {
 
 // ---- links / linksin / placement: packed (linkpacks/<book>/<kind>.index.json + bin files named in the index) or one file per section
 const kindIdx = new Map();
+const packDir = kind => kind === 'clauses' ? 'clausepacks/' : 'linkpacks/';
 async function getKindIndex(env, work, kind) {
   const k = work + '|' + kind, c = kindIdx.get(k); if (c && Date.now() - c.t < 300000) return c.idx;
-  const o = await env.R2.get('linkpacks/' + work + '/' + kind + '.index.json'); const idx = o ? await o.json() : null;
+  const o = await env.R2.get(packDir(kind) + work + '/' + kind + '.index.json'); const idx = o ? await o.json() : null;
   kindIdx.set(k, { t: Date.now(), idx }); return idx;
 }
 async function getKindDoc(env, work, kind, sec) {
   const idx = await getKindIndex(env, work, kind), e = idx && idx.secs && idx.secs[sec];
-  if (e) { const o = await env.R2.get('linkpacks/' + work + '/' + idx.files[e[0]], { range: { offset: e[1], length: e[2] } }); if (o) return await o.json(); }
+  if (e) { const o = await env.R2.get(packDir(kind) + work + '/' + idx.files[e[0]], { range: { offset: e[1], length: e[2] } }); if (o) return await o.json(); }
+  if (kind === 'clauses') { const o = await env.R2.get('clauses/' + work.replace('-', '/') + '/' + sec + '.json'); return o ? await o.json() : null; }
   const o = await env.R2.get(kind + '/' + work + '/' + sec + '.json'); return o ? await o.json() : null;
 }
 const routes = [];
@@ -129,18 +131,18 @@ R('POST', '/api/me/level', async ({ req, env, u }) => {
 R('GET', '/api/section', async ({ url, env }) => {
   const work = url.searchParams.get('work'), sec = url.searchParams.get('sec');
   if (!WORKS[work] || !sec || !/^[0-9A-Za-z.:_-]{1,30}$/.test(sec)) return err('bad ref');
-  const [doc, pobj] = await Promise.all([getSectionDoc(env, work, sec), getKindDoc(env, work, 'placement', sec)]);
+  const [doc, pobj, cobj] = await Promise.all([getSectionDoc(env, work, sec), getKindDoc(env, work, 'placement', sec), getKindDoc(env, work, 'clauses', sec).catch(() => null)]);
   if (!doc) return err('not found', 404);
   const pl = pobj || null; // corrections for commentaries whose own numbering is not the base-text segment numbering
   const segments = doc.text.segments.map((he, i) => ({ idx: i + 1, he })).filter(s => s.he);
-  const comments = [];
+  const comments = [], cl = (cobj && cobj.comments) || {};
   for (const c of doc.commentary) {
     const mv = (pl && pl.moves && pl.moves[c.who]) || null, pg = new Set((pl && pl.page && pl.page[c.who]) || []);
     for (const [seg, arr] of Object.entries(c.seg)) arr.forEach((he, n) => {
       const k = seg + ':' + (n + 1);
       if (mv && mv[k]) { if (mv[k].length) for (const t of mv[k]) comments.push({ idx: +t, who: c.who, n: n + 1, he }); else comments.push({ idx: 0, who: c.who, n: n + 1, he }); }
       else if (pg.has(k)) comments.push({ idx: 0, who: c.who, n: n + 1, he }); // idx 0 = the whole page
-      else comments.push({ idx: +seg, who: c.who, n: n + 1, he });
+      else { const q = cl[c.who] && cl[c.who][k]; comments.push(q == null ? { idx: +seg, who: c.who, n: n + 1, he } : { idx: +seg, who: c.who, n: n + 1, he, cl: q }); }
     });
     if (Array.isArray(c.unplaced)) c.unplaced.forEach((he, n) => comments.push({ idx: 0, who: c.who, n: 1000 + n, he })); // section-level commentary (could not be tied to one line)
   }
@@ -153,7 +155,8 @@ R('GET', '/api/section', async ({ url, env }) => {
   ]);
   const sources = { text: { version: doc.text.version, license: doc.text.license, source: doc.text.source },
     commentary: doc.commentary.map(c => ({ who: c.who, title: c.title, version: c.version, license: c.license, source: c.source })) };
-  return json({ segments, comments, xrefs: xr.results.map(r => ({ idx: r.idx, cat: r.cat, items: JSON.parse(r.items) })), noteCounts: nc.results, align: al.results, sources });
+  const clauses = cobj && cobj.segs ? Object.fromEntries(Object.entries(cobj.segs).filter(([, v]) => v && v.cuts && v.cuts.length > 1).map(([i, v]) => [i, v.cuts])) : null;
+  return json({ segments, comments, clauses, xrefs: xr.results.map(r => ({ idx: r.idx, cat: r.cat, items: JSON.parse(r.items) })), noteCounts: nc.results, align: al.results, sources });
 });
 R('GET', '/api/catalog', async ({ env }) => {
   // catalog.json (core books) + every catalog/<group>.json (other sessions add their own group files without touching the core one)
