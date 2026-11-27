@@ -30,7 +30,7 @@ async function login(env, user) {
 const s = (v, n) => String(v ?? '').slice(0, n);
 const int = v => (Number.isFinite(+v) ? Math.trunc(+v) : null);
 // any book id of the form <category>-<name> (tanakh-genesis, bavli-pesachim, yerushalmi-berakhot, midrash-..., halakhah-...) is valid (the data itself lives in R2; unknown ids simply 404)
-const WORKS = new Proxy({}, { get: (_, k) => (typeof k === 'string' && /^[a-z]{3,14}-[a-z0-9-]{1,60}$/.test(k) ? 1 : undefined) });
+const WORKS = new Proxy({}, { get: (_, k) => (typeof k === 'string' && /^[a-z]{3,14}-[a-z0-9-]{1,120}$/.test(k) ? 1 : undefined) });
 // older D1 tables (cross-reference groups, Onkelos alignment) were keyed by the first three work ids
 const LEGACY = { 'tanakh-exodus': 'shemos', 'mishnah-berakhot': 'mishnah', 'bavli-berakhot': 'gemara' };
 
