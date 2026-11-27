@@ -161,11 +161,14 @@ def r2_get(key):
         r = urllib.request.Request('https://api.cloudflare.com/client/v4/accounts', headers={'Authorization': 'Bearer ' + tok})
         acct = json.load(urllib.request.urlopen(r, timeout=60))['result'][0]['id']
     url = f'https://api.cloudflare.com/client/v4/accounts/{acct}/r2/buckets/torah-world-data/objects/' + urllib.parse.quote(key, safe='/')
-    try:
-        return json.load(urllib.request.urlopen(urllib.request.Request(url, headers={'Authorization': 'Bearer ' + tok}), timeout=60))
-    except urllib.error.HTTPError as e:
-        if e.code == 404: return None
-        raise
+    import time
+    for i in range(8):
+        try:
+            return json.load(urllib.request.urlopen(urllib.request.Request(url, headers={'Authorization': 'Bearer ' + tok}), timeout=60))
+        except urllib.error.HTTPError as e:
+            if e.code == 404: return None
+            if e.code not in (429, 500, 502, 503, 504) or i == 7: raise
+            time.sleep(min(60, 2 ** (i + 1)))
 
 def build_catalog(a, P):
     cat = a.build_catalog.capitalize(); entries = []
