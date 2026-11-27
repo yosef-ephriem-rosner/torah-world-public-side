@@ -1,0 +1,103 @@
+name: Build search index
+# Offline full-text index (docs/SEARCH_DESIGN.md). 1) partial index per book (matrix, max-parallel 2, resumable: books that already have
+# search/_partial/<id>.json.gz in R2 are skipped unless `force`), 2) merge all partials -> search/v<stamp>/** + search/manifest.json (uploaded last).
+on:
+  push:                       # lets the branch run before the workflow exists on main: edit .github/search_run.txt and push
+    branches: [search-work]
+    paths: ['.github/search_run.txt']
+  workflow_dispatch:
+    inputs:
+      force:
+        description: 'Rebuild partials even if they exist'
+        type: boolean
+        default: false
+      extra:
+        description: 'Also index books outside the Sefaria core catalog (read from R2 sections, throttled)'
+        type: boolean
+        default: false
+      only:
+        description: 'Optional: comma list of book ids/titles to (re)build (e.g. bavli-berakhot,tanakh-exodus)'
+        type: string
+        default: ''
+      merge:
+        description: 'Run the merge/upload step'
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+jobs:
+  plan:
+    runs-on: ubuntu-latest
+    outputs:
+      items: ${{ steps.p.outputs.items }}
+      any: ${{ steps.p.outputs.any }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.12' }
+      - id: p
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          args=""; [ "${{ inputs.force }}" = "true" ] && args="$args --force"; [ "${{ inputs.extra }}" = "true" ] && args="$args --extra"
+          [ -n "${{ inputs.only }}" ] && args="$args --only ${{ inputs.only }}"
+          items=$(python3 scripts/build_search_index.py plan $args)
+          echo "items=$items" >> "$GITHUB_OUTPUT"
+          [ "$items" = "[]" ] && echo "any=false" >> "$GITHUB_OUTPUT" || echo "any=true" >> "$GITHUB_OUTPUT"
+          echo "$items" | python3 -c "import json,sys; print(len(json.load(sys.stdin)),'books to index')"
+
+  partial:
+    needs: plan
+    if: needs.plan.outputs.any == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 340
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        item: ${{ fromJson(needs.plan.outputs.items) }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.12' }
+      - name: Section files (Sefaria export, same code as the site import)
+        if: matrix.item.kind == 'export'
+        run: python3 scripts/import_export.py --book "${{ matrix.item.title }}" --out out
+      - name: Section files (non-Sefaria book, read from R2 at ~3 req/s)
+        if: matrix.item.kind == 'r2'
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: python3 scripts/build_search_index.py fetch-r2 --book "${{ matrix.item.id }}" --out out/sections
+      - name: Partial index
+        run: python3 scripts/build_search_index.py partial --sections out/sections --book "${{ matrix.item.id }}" --out sidx/search/_partial
+      - name: Upload partial
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: python3 scripts/upload_search.py sidx --threads 2
+
+  merge:
+    needs: [plan, partial]
+    if: ${{ !cancelled() && (github.event_name != 'workflow_dispatch' || inputs.merge) && needs.plan.result == 'success' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 340
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.12' }
+      - name: Download partials from R2
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: python3 scripts/build_search_index.py fetch-partials --out partials
+      - name: Merge into shards
+        run: python3 scripts/build_search_index.py merge --partials partials --out sidx_out
+      - name: Upload shards (manifest last)
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: python3 scripts/upload_search.py sidx_out --threads 2

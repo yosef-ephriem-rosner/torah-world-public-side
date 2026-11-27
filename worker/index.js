@@ -1,4 +1,5 @@
 import ASSETS from './assets.js';
+import { searchText } from './search.js';
 const bin = {};
 // Torah World API — Cloudflare Worker + D1
 const PRO = ['avreich', 'rav', 'talmid_chacham', 'rosh_yeshiva'];
@@ -179,10 +180,12 @@ R('GET', '/api/search', async ({ url, env, u }) => {
   const q = s(url.searchParams.get('q'), 60).replace(/[֑-ׇ]/g, '').trim();
   if (q.length < 2) return json({ text: [], notes: [] });
   const like = '%' + q.replace(/[%_]/g, '') + '%';
-  const text = await env.DB.prepare('SELECT work,sec,idx,he FROM segments WHERE plain LIKE ? LIMIT 40').bind(like).all();
+  let idx = null; if (!url.searchParams.get('legacy')) { try { idx = await searchText(env, url); } catch (e) { idx = null; } }  // static R2 index (worker/search.js); null -> old D1 LIKE search below
+  const text = idx ? { results: idx.text } : await env.DB.prepare('SELECT work,sec,idx,he FROM segments WHERE plain LIKE ? LIMIT 40').bind(like).all();
+  if (idx && url.searchParams.get('after')) return json({ text: idx.text, notes: [], more: idx.more, next: idx.next, meta: idx.meta });
   const g = await groupIds(env, u), v = visSql(u, g);
   const notes = await env.DB.prepare(`SELECT n.id,n.work,n.sec,n.idx,n.kind,n.title,n.body,n.tags,n.level,n.score,us.name author FROM notes n JOIN users us ON us.id=n.user_id WHERE ${v.sql} AND (n.body LIKE ? OR n.title LIKE ? OR n.tags LIKE ? OR n.quote LIKE ?) ORDER BY n.score DESC,n.created DESC LIMIT 40`).bind(...v.binds, like, like, like, like).all();
-  return json({ text: text.results, notes: notes.results });
+  return json({ text: text.results, notes: notes.results, ...(idx ? { more: idx.more, next: idx.next, meta: idx.meta } : {}) });
 });
 
 // ---- notes
