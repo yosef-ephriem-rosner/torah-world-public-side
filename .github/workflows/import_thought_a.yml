@@ -8,7 +8,7 @@ on:
         required: true
         default: musar
         type: choice
-        options: [musar, chasidut, kabbalah, jewishthought, liturgy]
+        options: [musar, chasidut, kabbalah, jewishthought, liturgy, responsa, secondtemple]
   push:
     branches: [content-a-work]
     paths: ['.github/thought_request.json']
@@ -22,6 +22,7 @@ jobs:
     outputs:
       chunks: ${{ steps.list.outputs.chunks }}
       family: ${{ steps.list.outputs.family }}
+      catonly: ${{ steps.list.outputs.catonly }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -30,10 +31,12 @@ jobs:
         run: |
           if [ "${{ github.event_name }}" = push ]; then FAM=$(python3 -c "import json;print(json.load(open('.github/thought_request.json'))['family'])"); else FAM='${{ inputs.family }}'; fi
           echo "family=$FAM" >> "$GITHUB_OUTPUT"
+          if [ "${{ github.event_name }}" = push ]; then echo "catonly=$(python3 -c "import json;print(str(json.load(open('.github/thought_request.json')).get('catalog_only',False)).lower())")" >> "$GITHUB_OUTPUT"; fi
           echo "chunks=$(python3 scripts/import_thought.py --plan $FAM --chunk 20)" >> "$GITHUB_OUTPUT"
 
   import:
     needs: plan
+    if: ${{ needs.plan.outputs.catonly != 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 340
     strategy:

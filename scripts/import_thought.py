@@ -19,7 +19,8 @@ from import_export import BOOKS_URL, TOC_URL, clean, fetch, flat, norm_license, 
 from import_more import heb_num, place, r2_get
 
 FAMILIES = {'musar': ('Musar', 'Musar'), 'chasidut': ('Chasidut', 'Chasidut'), 'kabbalah': ('Kabbalah', 'Kabbalah'),
-            'jewishthought': ('Jewish Thought', 'Jewish Thought'), 'liturgy': ('Liturgy', 'Liturgy')}
+            'jewishthought': ('Jewish Thought', 'Jewish Thought'), 'liturgy': ('Liturgy', 'Liturgy'),
+            'responsa': ('Responsa', 'Responsa'), 'secondtemple': ('Second Temple', 'Second Temple')}
 CHUNK = 40
 
 def plan(fam):
@@ -28,6 +29,7 @@ def plan(fam):
     def walk(n, path):
         for c in n.get('contents', []):
             if 'contents' in c: walk(c, path + (c.get('category'),))
+            elif not c.get('title'): continue
             else:
                 out.append(dict(id=f'{fam}-{slug(c["title"])}', title=c['title'], he=c.get('heTitle'), cat=cat, group=' / '.join(path[:2]) if path else 'Other',
                                 order=len(out), fam=fam))
