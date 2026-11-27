@@ -121,6 +121,25 @@ function dhBold(html, who) {
   return m[1] + '<b class="dh">' + m[2] + '</b>' + html.slice(m[1].length + m[2].length);
 }
 
+// ---------- word-level link: click a bold dibur hamatchil to highlight the exact words it quotes in the base text
+function highlightDh(dhEl) {
+  if (!window.CSS || !CSS.highlights || typeof Highlight === 'undefined') return;
+  CSS.highlights.delete('dhlink');
+  const dh = hnorm(dhEl.textContent).split(' ').filter(w => w && !['וכו', 'וגו', 'כו'].includes(w));
+  if (!dh.length) return;
+  const cs = dhEl.closest('[data-idx]'); const idx = cs ? cs.dataset.idx : S.sel;
+  const root = $(`.sg[data-idx="${idx}"]`) || $('#app'); if (!root) return;
+  const toks = [], walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+  for (let n; (n = walker.nextNode());) { if (n.parentElement.closest('.vn,sup,.star')) continue; const re = /\S+/g; let m; while ((m = re.exec(n.nodeValue))) { const nw = hnorm(m[0]); if (nw) toks.push({ n, a: m.index, b: m.index + m[0].length, w: nw }); } }
+  const eq = (x, y) => x === y || stripPre(x) === stripPre(y);
+  let best = -1, bi = -1;
+  for (let i = 0; i + dh.length <= toks.length + 0; i++) { let sc = 0; for (let k = 0; k < dh.length; k++) if (eq(toks[i + k].w, dh[k])) sc++; if (sc > best) { best = sc; bi = i; } }
+  if (bi < 0 || best / dh.length < 0.6) return;
+  const a = toks[bi], z = toks[bi + dh.length - 1], r = new Range(); r.setStart(a.n, a.a); r.setEnd(z.n, z.b);
+  CSS.highlights.set('dhlink', new Highlight(r));
+  a.n.parentElement.scrollIntoView({ block: 'nearest' });
+}
+document.addEventListener('click', e => { const d = e.target.closest && e.target.closest('b.dh'); if (d) highlightDh(d); else if (window.CSS && CSS.highlights && !e.target.closest('.sg')) CSS.highlights.delete('dhlink'); });
 
 // ---------- catalog: the list of books comes from R2 (catalog.json); the six built-in books are the fallback
 const HEGROUP = { Torah: 'תורה', Prophets: 'נביאים', Writings: 'כתובים', 'Seder Zeraim': 'סדר זרעים', 'Seder Moed': 'סדר מועד', 'Seder Nashim': 'סדר נשים', 'Seder Nezikin': 'סדר נזיקין', 'Seder Kodashim': 'סדר קדשים', 'Seder Tahorot': 'סדר טהרות' };
