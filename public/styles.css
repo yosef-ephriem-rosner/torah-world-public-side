@@ -100,3 +100,7 @@ table.lic{width:100%;border-collapse:collapse;font-size:14px}table.lic th,table.
 
 ::highlight(dhlink){background:#ffe58a;color:#000}
 b.dh{cursor:pointer;text-decoration:underline dotted}
+
+.cn{font-weight:700;font-size:.8em;color:var(--accent,#1f4e79);background:rgba(31,78,121,.08);border-radius:3px;padding:0 3px}
+.tzlist{max-height:55vh;overflow:auto;margin:8px 0}.tzrow{display:flex;gap:8px;align-items:center;padding:6px 0;border-bottom:1px solid rgba(128,128,128,.2)}.tzrow select{margin-inline-start:auto}
+.linkbtn{background:none;border:0;color:inherit;text-decoration:underline;cursor:pointer;font:inherit;padding:0}

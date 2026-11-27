@@ -286,7 +286,9 @@ async function readPage(work, sec, sel) {
         <button class="ghost icon" id="next" aria-label="Next ${type === 'daf' ? 'page' : 'section'} (arrow key)" ${i < W.secs.length - 1 ? '' : 'disabled'}>▶</button></div>
       <button class="ghost icon" id="bm" aria-label="Bookmark this page" aria-pressed="${isBookmarked(work, sec)}" title="Bookmark">${isBookmarked(work, sec) ? '★' : '☆'}</button>
       <button class="ghost only-sheet" id="opensb" aria-label="Open commentary and notes panel">☰ Panel</button>
+      <button class="ghost" id="tzbtn" aria-label="Choose mefarshim to show around the text" title="Choose mefarshim">מפרשים</button>
       <details class="view" id="viewmenu"><summary>⚙ View</summary><div class="viewpanel">
+        ${type !== 'daf' && tzKind() !== 'other' ? `<h4>Layout</h4><select id="tview" aria-label="Page layout"><option value="page" ${tzOn() ? 'selected' : ''}>צורת הדף · Vilna-style page with mefarshim</option><option value="simple" ${tzOn() ? '' : 'selected'}>Simple text</option></select>` : ''}
         ${type === 'daf' ? `<h4>Layout</h4><select id="dview" aria-label="Page layout"><option value="page" ${dafView() === 'page' ? 'selected' : ''}>צורת הדף · Printed page (fixed)</option><option value="live" ${dafView() === 'live' ? 'selected' : ''}>Adaptive layout (fits window)</option><option value="simple" ${dafView() === 'simple' ? 'selected' : ''}>Simple text (best on phones)</option></select>` : ''}
         <h4>Text</h4>${chk('lnk', 'ניקוד · Nikud (vowels)', f.nikud)}${type === 'chumash' ? chk('ltaam', 'טעמים · Cantillation marks', f.taamim) : ''}${W.targum ? chk('ltg', 'תרגום אונקלוס · Onkelos', localStorage.targum === '1') : ''}
         <div class="sizer" id="sizer1"><span class="mut" style="font-size:13px;flex:1">Text size</span><button class="ghost sm" id="tdown" aria-label="Smaller text">A−</button><button class="ghost sm" id="tup" aria-label="Larger text">A+</button></div>
@@ -309,6 +311,8 @@ async function readPage(work, sec, sel) {
   $('#tdown').onclick = () => step('ts', -0.1, 0.7, 1.8); $('#tup').onclick = () => step('ts', 0.1, 0.7, 1.8); $('#cdown').onclick = () => step('cs', -0.1, 0.7, 1.8); $('#cup').onclick = () => step('cs', 0.1, 0.7, 1.8);
   if ($('#ltg')) $('#ltg').onchange = e => { localStorage.targum = e.target.checked ? '1' : '0'; renderText().then(paintHighlights); };
   if ($('#ltaam')) $('#ltaam').onchange = e => { pref.set('taamim', e.target.checked); renderText().then(paintHighlights); };
+  if ($('#tview')) $('#tview').onchange = e => { localStorage.setItem('tzview:' + tzKind(), e.target.value); renderText().then(paintHighlights); };
+  $('#tzbtn').onclick = mefarshimModal;
   if ($('#dview')) $('#dview').onchange = e => { localStorage.dafView = e.target.value; applyView(); renderText().then(paintHighlights); };
   $('#lnk').onchange = e => { localStorage.setItem('nikud:' + type, e.target.checked ? '1' : '0'); renderText().then(paintHighlights); };
   $('#bm').onclick = () => { const on = toggleBookmark(work, sec); $('#bm').textContent = on ? '★' : '☆'; $('#bm').setAttribute('aria-pressed', on); toast(on ? 'Bookmarked' : 'Bookmark removed'); };
@@ -333,11 +337,40 @@ function segHTML(sg, num, nc, lead) {
   const w = wrapWords(sg.he, 0);
   return `<span class="sg" data-idx="${sg.idx}">${lead || ''}${num ? `<sup class="vn">${num}</sup>` : ''}${w.html}${star(nc, sg.idx)}</span> `;
 }
+
+// ---------- Vilna-style layout (tzuras hadaf) for every kind of book, with a live choice of mefarshim
+const TZ_DEFAULT = { daf: { inner: ['Rashi'], outer: ['Tosafot'] }, mishnah: { inner: ['Bartenura'], outer: ['Tosafot Yom Tov', 'Ikar Tosafot Yom Tov'] }, tanakh: { inner: ['Rashi'], outer: ['Ibn Ezra', 'Ramban'] } };
+const tzKind = () => S.W.type === 'daf' ? 'daf' : /^mishnah-/.test(S.work) ? 'mishnah' : /^tanakh-/.test(S.work) ? 'tanakh' : 'other';
+function tzAvail() { const c = {}; S.data.comments.forEach(x => c[x.who] = (c[x.who] || 0) + 1); return Object.entries(c).sort((a, b) => b[1] - a[1]).map(([who, n]) => ({ who, n })); }
+function tzCfg() {
+  const av = new Set(tzAvail().map(x => x.who)), kind = tzKind(), d = TZ_DEFAULT[kind] || { inner: [], outer: [] };
+  let saved = null; try { saved = JSON.parse(localStorage.getItem('tzcfg:' + kind)); } catch { }
+  const raw = saved || d, keep = l => (l || []).filter(w => av.has(w));
+  return { inner: keep(raw.inner), outer: keep(raw.outer), custom: !!saved };
+}
+const tzSetCfg = (cfg) => localStorage.setItem('tzcfg:' + tzKind(), JSON.stringify({ inner: cfg.inner, outer: cfg.outer }));
+// is the Vilna-style page the chosen layout for this book?
+function tzOn() {
+  if (S.W.type === 'daf') return dafView() !== 'simple';
+  const kind = tzKind(), v = localStorage.getItem('tzview:' + kind) || (kind !== 'other' && innerWidth >= 760 ? 'page' : 'simple');
+  if (v !== 'page') return false;
+  const c = tzCfg(); return c.inner.length + c.outer.length > 0;
+}
+function mefarshimModal() {
+  const cfg = tzCfg(), av = tzAvail(), val = w => cfg.inner.includes(w) ? 'i' : cfg.outer.includes(w) ? 'o' : '';
+  const d = modal(`<h3>מפרשים · Mefarshim on the page</h3><p class="mut" style="font-size:13px">Choose which mefarshim appear around the text. Inner = next to the text, outer = the outside column. Changes show immediately.</p>
+    <div class="tzlist">${av.map(a => `<div class="tzrow"><span class="he">${esc(HEWHO[a.who] || a.who)}</span> <span class="mut" style="font-size:12px">${esc(a.who)} · ${a.n}</span><select data-who="${esc(a.who)}" aria-label="Where to show ${esc(a.who)}"><option value="">Off</option><option value="i" ${val(a.who) === 'i' ? 'selected' : ''}>Inner</option><option value="o" ${val(a.who) === 'o' ? 'selected' : ''}>Outer</option></select></div>`).join('')}</div>
+    <div class="row"><button class="ghost" id="tzreset">Reset to default</button><button id="tzdone">Done</button></div>`);
+  const apply = () => { const c = { inner: [], outer: [] }; $$('select[data-who]', d).forEach(x => { if (x.value === 'i') c.inner.push(x.dataset.who); if (x.value === 'o') c.outer.push(x.dataset.who); }); tzSetCfg(c); if (S.W.type !== 'daf') localStorage.setItem('tzview:' + tzKind(), 'page'); renderText().then(paintHighlights); };
+  $$('select[data-who]', d).forEach(x => x.onchange = apply);
+  $('#tzreset', d).onclick = () => { localStorage.removeItem('tzcfg:' + tzKind()); closeModal(); renderText().then(paintHighlights); };
+  $('#tzdone', d).onclick = closeModal;
+}
 async function renderText() {
   const box = $('#text'); box.innerHTML = ''; box.className = 'card page ' + S.work;
   const { nc } = counts();
   if (S.W.type === 'daf' && dafView() === 'simple') renderSimple(box, nc);
-  else if (S.W.type === 'daf') await renderDaf(box, nc);
+  else if (S.W.type === 'daf' || tzOn()) await renderDaf(box, nc);
   else if (S.W.type === 'chumash') renderChumash(box, nc);
   else box.innerHTML = S.data.segments.map(sg => `<p class="mish">${segHTML({ idx: sg.idx, he: stripT(sg.he) }, '', nc, `<b class="mnum">${gem(sg.idx)}.</b> `)}</p>`).join('');
   box.onmouseup = onSelect;
@@ -374,19 +407,22 @@ function renderSimple(box, nc) {
   window.__dafDone = { work: S.work, sec: S.sec, nikud, view: 'simple', stored: false, scale: 1, spacers: null, height: 0 };
 }
 async function renderDaf(box, nc) {
-  const { data, sec } = S, amud = sec.endsWith('a') ? 'a' : 'b';
-  const nikud = flags().nikud, view = dafView() === 'live' ? 'live' : 'page';
+  const { data, sec } = S, isDaf = S.W.type === 'daf', amud = isDaf ? (sec.endsWith('a') ? 'a' : 'b') : 'a';
+  const cfg = tzCfg(), isDefault = isDaf && !cfg.custom;
+  const nikud = flags().nikud, view = (isDaf && dafView() !== 'live' && isDefault) ? 'page' : 'live';
   const strip = stripT;
   const main = data.segments.map(sg => segHTML({ idx: sg.idx, he: strip(sg.he) }, '', nc)).join('');
-  const side = who => data.comments.filter(c => c.who === who).map(c => `<span class="cs" data-idx="${c.idx}" data-who="${who}">${dhBold(strip(c.he), who)}</span>`).join(' ');
-  box.insertAdjacentHTML('afterbegin', `<div class="mut dafkey" style="text-align:center;font-size:12px">${view === 'page' ? 'צורת הדף' : 'Live layout'} · רש״י (פנים) · תוספות (חוץ) — click any part for notes &amp; the full commentary</div>`);
+  const side = whos => { const ord = whos.slice(); return data.comments.filter(c => ord.includes(c.who)).map((c, k) => ({ c, k })).sort((a, b) => (a.c.idx - b.c.idx) || (ord.indexOf(a.c.who) - ord.indexOf(b.c.who)) || (a.k - b.k)).map(({ c }) => `<span class="cs" data-idx="${c.idx}" data-who="${esc(c.who)}">${ord.length > 1 ? `<span class="cn">${esc(HEWHO[c.who] || c.who)}</span> ` : ''}${dhBold(strip(c.he), c.who)}</span>`).join(' '); };
+  const nm = l => l.map(w => HEWHO[w] || w).join(' · ') || '—';
+  box.insertAdjacentHTML('afterbegin', `<div class="mut dafkey" style="text-align:center;font-size:12px">${view === 'page' ? 'צורת הדף' : 'Live layout'} · ${esc(nm(cfg.inner))} (inner) · ${esc(nm(cfg.outer))} (outer) — click any part for notes &amp; the full commentary · <button class="linkbtn" id="tzopen">⚙ Mefarshim</button></div>`);
+  const tzb = $('#tzopen', box); if (tzb) tzb.onclick = mefarshimModal;
   const holder = document.createElement('div'); holder.id = 'daf';
   const wrap = document.createElement('div'); wrap.className = 'pagewrap'; wrap.append(holder); box.append(wrap);
   if (view === 'page') await ensureLayouts(S.work);
   const fixed = view === 'page', avail = box.clientWidth - 12;
   const s = window.__PRECOMPUTE ? 1 : (fixed ? Math.max(PAGE_MIN, Math.min(1.15, avail / PAGE_W)) : 1);
   const width = fixed ? Math.round(PAGE_W * s) : Math.max(520, Math.min(960, box.clientWidth - 30));
-  const stored = fixed && !window.__PRECOMPUTE && window.DAF_LAYOUTS ? window.DAF_LAYOUTS[S.work + '|' + sec + '|' + (nikud ? 1 : 0)] : null;
+  const stored = fixed && isDefault && !window.__PRECOMPUTE && window.DAF_LAYOUTS ? window.DAF_LAYOUTS[S.work + '|' + sec + '|' + (nikud ? 1 : 0)] : null;
   const k = fixed ? s : 1, px = v => (v * k) + 'px';
   const opts = {
     contentWidth: width + 'px', mainWidth: '46%', padding: { vertical: px(8), horizontal: px(14) }, innerPadding: px(4), outerPadding: px(4),
@@ -397,7 +433,7 @@ async function renderDaf(box, nc) {
   const r = dafRenderer(holder, opts);
   try { await document.fonts.load('19px "Frank Ruhl Libre"'); await document.fonts.load('700 19px "Frank Ruhl Libre"'); await document.fonts.load('13px "Noto Rashi Hebrew"'); await document.fonts.ready; } catch { }
   if (!holder.isConnected) return;
-  r.render(main, side('Rashi'), side('Tosafot'), amud);
+  r.render(main, side(cfg.inner), side(cfg.outer), amud);
   window.__lastDaf = r;
   if (fixed) { wrap.classList.add('fixedpage'); S.fitW = avail; }
   window.__dafDone = { work: S.work, sec, nikud, view, spacers: r.spacerHeights, height: holder.offsetHeight, stored: !!stored, scale: k };
