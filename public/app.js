@@ -222,6 +222,7 @@ function route() {
   if (p[0] === 'chavrusa') return chavrusaPage();
   if (p[0] === 'about') return aboutPage(); if (p[0] === 'terms') return textPage('terms'); if (p[0] === 'privacy') return textPage('privacy');
   if (p[0] === 'bookmarks') return bookmarksPage();
+  if (p[0] === 'mefarshim') return mefarshimPage(decodeURIComponent(p[1] || ''));
   if (p[0] === 'shelf') return shelfPage(p[1], decodeURIComponent(p[2] || ''), decodeURIComponent(p[3] || ''));
   if (p[0] === 'search') return searchPage(new URLSearchParams(qs).get('q') || '');
   if (p[0] === 'me') return mePage();
@@ -628,6 +629,22 @@ function bookmarksPage() {
 }
 
 // ---------- one mefaresh on its own page
+async function mefarshimPage(work) {
+  const app = $('#app');
+  const books = Object.entries(WORKS).map(([id, w]) => ({ ...w, id })).filter(w => !(w.commentaries === 0));
+  if (!work) {
+    app.innerHTML = `<h1>Mefarshim bookshelf</h1><p class="mut">Pick a book to see all of its commentaries. Each can be read on its own, chapter by chapter.</p><input id="mfq" type="search" placeholder="Filter books" aria-label="Filter books"><div id="mfl" class="chips"></div>`;
+    const draw = q => { $('#mfl').innerHTML = books.filter(w => !q || (w.he + ' ' + (w.en || w.id)).toLowerCase().includes(q.toLowerCase())).slice(0, 300).map(w => `<a class="chip" href="#/mefarshim/${w.id}">${esc(w.he)}${w.en ? ' · ' + esc(w.en) : ''}</a>`).join(''); };
+    draw(''); $('#mfq').oninput = e => draw(e.target.value); return;
+  }
+  const wid = ALIAS[work] || work, W0 = WORKS[wid]; if (!W0) { app.innerHTML = '<p>Unknown book.</p>'; return; } const W = { ...W0, id: wid };
+  app.innerHTML = `<p><a href="#/mefarshim">← All books</a></p><h1 class="he">${esc(W.he)}</h1><p class="mut">Loading commentaries…</p>`;
+  let m; try { m = await api('/manifest?work=' + W.id); } catch (e) { app.innerHTML += `<p>${esc(e.message)}</p>`; return; }
+  const first = W.secs[0];
+  app.innerHTML = `<p><a href="#/mefarshim">← All books</a> · <a href="#/read/${W.id}/${encodeURIComponent(first)}">Read ${esc(W.he)}</a></p><h1 class="he">${esc(W.he)}</h1>
+  <p class="mut">${(m.commentaries || []).length} commentaries. Open one to read it on its own, section by section.</p>
+  <div class="cards">${(m.commentaries || []).map(c => `<div class="card"><b>${esc(c.who)}</b><div class="mut" style="font-size:12px">${esc(c.version || '')} · ${esc(c.license || '')}${c.source ? ` · <a href="${esc(c.source)}" target="_blank" rel="noopener">source</a>` : ''}</div><a class="btn" href="#/shelf/${W.id}/${encodeURIComponent(first)}/${encodeURIComponent(c.who)}">Read on its own</a></div>`).join('') || '<p>No commentaries for this book.</p>'}</div>`;
+}
 async function shelfPage(work, sec, who) {
   const my = ++navId, W = WORKS[work]; if (!W) return home();
   if (!sec || !W.secs.includes(sec)) sec = W.secs[0];
