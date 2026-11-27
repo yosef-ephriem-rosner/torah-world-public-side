@@ -331,7 +331,7 @@ async function readPage(work, sec, sel) {
       <button class="ghost only-sheet" id="opensb" aria-label="Open commentary and notes panel">☰ Panel</button>
       <button class="ghost" id="tzbtn" aria-label="Choose mefarshim to show around the text" title="Choose mefarshim">מפרשים</button>
       <details class="view" id="viewmenu"><summary>⚙ View</summary><div class="viewpanel">
-        ${type !== 'daf' && tzKind() !== 'other' ? `<h4>Layout</h4><select id="tview" aria-label="Page layout"><option value="page" ${tzOn() ? 'selected' : ''}>צורת הדף · Vilna-style page with mefarshim</option><option value="simple" ${tzOn() ? '' : 'selected'}>Simple text</option></select>` : ''}
+        ${type !== 'daf' && tzAvail().length ? `<h4>Layout</h4><select id="tview" aria-label="Page layout"><option value="page" ${tzOn() ? 'selected' : ''}>צורת הדף · Vilna-style page with mefarshim</option><option value="simple" ${tzOn() ? '' : 'selected'}>Simple text</option></select>` : ''}
         ${type === 'daf' ? `<h4>Layout</h4><select id="dview" aria-label="Page layout"><option value="page" ${dafView() === 'page' ? 'selected' : ''}>צורת הדף · Printed page (fixed)</option><option value="live" ${dafView() === 'live' ? 'selected' : ''}>Adaptive layout (fits window)</option><option value="simple" ${dafView() === 'simple' ? 'selected' : ''}>Simple text (best on phones)</option></select>` : ''}
         <h4>Text</h4>${chk('lnk', 'ניקוד · Nikud (vowels)', f.nikud)}${type === 'chumash' ? chk('ltaam', 'טעמים · Cantillation marks', f.taamim) : ''}${W.targum ? chk('ltg', 'תרגום אונקלוס · Onkelos', localStorage.targum === '1') : ''}${chk('lbrk', 'Short lines · one phrase per line (simple layout)', pref.get('brk', false))}
         <div class="sizer" id="sizer1"><span class="mut" style="font-size:13px;flex:1">Text size</span><button class="ghost sm" id="tdown" aria-label="Smaller text">A−</button><button class="ghost sm" id="tup" aria-label="Larger text">A+</button></div>
@@ -383,15 +383,17 @@ function segHTML(sg, num, nc, lead) {
 }
 
 // ---------- Vilna-style layout (tzuras hadaf) for every kind of book, with a live choice of mefarshim
-const TZ_DEFAULT = { daf: { inner: ['Rashi'], outer: ['Tosafot'] }, mishnah: { inner: ['Bartenura'], outer: ['Tosafot Yom Tov', 'Ikar Tosafot Yom Tov'] }, tanakh: { inner: ['Rashi'], outer: ['Ibn Ezra', 'Ramban'] }, chumash: { inner: ['Onkelos'], outer: ['Rashi'] } };
+const TZ_DEFAULT = { daf: { inner: ['Rashi'], outer: ['Tosafot'] }, mishnah: { inner: ['Bartenura'], outer: ['Tosafot Yom Tov', 'Ikar Tosafot Yom Tov'] }, tanakh: { inner: ['Rashi'], outer: ['Ibn Ezra', 'Ramban'] }, chumash: { inner: ['Onkelos'], outer: ['Rashi'] }, yerushalmi: { inner: ['Penei Moshe'], outer: ['Korban HaEdah', 'Mareh HaPanim'] }, tosefta: { inner: ['Tosefta Kifshutah'], outer: ['Masoret HaTosefta'] } };
 const CHUMASH = ['tanakh-genesis', 'tanakh-exodus', 'tanakh-leviticus', 'tanakh-numbers', 'tanakh-deuteronomy'];
-const tzKind = () => S.W.type === 'daf' ? 'daf' : /^mishnah-/.test(S.work) ? 'mishnah' : CHUMASH.includes(S.work) ? 'chumash' : /^tanakh-/.test(S.work) ? 'tanakh' : 'other';
+const tzKind = () => S.W.type === 'daf' ? 'daf' : /^mishnah-/.test(S.work) ? 'mishnah' : CHUMASH.includes(S.work) ? 'chumash' : /^tanakh-/.test(S.work) ? 'tanakh' : /^yerushalmi-/.test(S.work) ? 'yerushalmi' : /^tosefta-/.test(S.work) ? 'tosefta' : 'other';
 function tzAvail() { const c = {}; S.data.comments.forEach(x => c[x.who] = (c[x.who] || 0) + 1); return Object.entries(c).sort((a, b) => b[1] - a[1]).map(([who, n]) => ({ who, n })); }
 function tzCfg() {
   const av = new Set(tzAvail().map(x => x.who)), kind = tzKind(), d = TZ_DEFAULT[kind] || { inner: [], outer: [] };
   let saved = null; try { saved = JSON.parse(localStorage.getItem('tzcfg:' + kind)); } catch { }
   const raw = saved || d, keep = l => (l || []).filter(w => av.has(w));
-  return { inner: keep(raw.inner), outer: keep(raw.outer), custom: !!saved };
+  const out = { inner: keep(raw.inner), outer: keep(raw.outer), custom: !!saved };
+  if (!out.inner.length && !out.outer.length && !saved) { const top = tzAvail().slice(0, 3).map(x => x.who); out.inner = top.slice(0, 1); out.outer = top.slice(1); }
+  return out;
 }
 const tzSetCfg = (cfg) => localStorage.setItem('tzcfg:' + tzKind(), JSON.stringify({ inner: cfg.inner, outer: cfg.outer }));
 // is the Vilna-style page the chosen layout for this book?
