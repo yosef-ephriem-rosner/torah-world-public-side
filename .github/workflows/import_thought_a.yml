@@ -8,7 +8,7 @@ on:
         required: true
         default: musar
         type: choice
-        options: [musar, chasidut, kabbalah, jewishthought, liturgy]
+        options: [musar, chasidut, kabbalah, jewishthought, liturgy, responsa, secondtemple]
   push:
     branches: [content-a-work]
     paths: ['.github/thought_request.json']
