@@ -3,7 +3,7 @@
 import json, os, base64
 root = os.path.join(os.path.dirname(__file__), '..')
 types = {'.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8',
-         '.json': 'application/json; charset=utf-8', '.woff2': 'font/woff2'}
+         '.json': 'application/json; charset=utf-8', '.woff2': 'font/woff2', '.png': 'image/png', '.svg': 'image/svg+xml', '.webmanifest': 'application/manifest+json; charset=utf-8'}
 files = {}
 def walk(d, prefix):
     for f in sorted(os.listdir(d)):
@@ -11,7 +11,7 @@ def walk(d, prefix):
         if os.path.isdir(p): walk(p, prefix + f + '/'); continue
         ext = os.path.splitext(f)[1]
         if ext not in types: continue
-        if ext == '.woff2': files['/' + prefix + f] = {'type': types[ext], 'b64': base64.b64encode(open(p, 'rb').read()).decode()}
+        if ext in ('.woff2', '.png'): files['/' + prefix + f] = {'type': types[ext], 'b64': base64.b64encode(open(p, 'rb').read()).decode()}
         else: files['/' + prefix + f] = {'type': types[ext], 'body': open(p, encoding='utf-8').read()}
 walk(os.path.join(root, 'public'), '')
 open(os.path.join(root, 'worker', 'assets.js'), 'w', encoding='utf-8').write('export default ' + json.dumps(files, ensure_ascii=False) + ';\n')
