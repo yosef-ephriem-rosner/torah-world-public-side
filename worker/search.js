@@ -127,6 +127,19 @@ function snippet(mt, span = 110) {
   return out + escH(plain.slice(p, b)) + (b < plain.length ? ' …' : '');
 }
 
+// ---- section documents: packs/<book>/index.json (range reads) or sections/<cat>/<rest>/<sec>.json
+const PIDX = new Map();
+async function packIndex(env, book) {
+  const c = PIDX.get(book); if (c && Date.now() - c.t < 300000) return c.idx;
+  const o = await env.R2.get('packs/' + book + '/index.json'); const idx = o ? await o.json() : null;
+  PIDX.set(book, { t: Date.now(), idx }); return idx;
+}
+async function sectionDoc(env, book, sec) {
+  const idx = await packIndex(env, book), e = idx && idx.secs && idx.secs[sec];
+  if (e) { const o = await env.R2.get('packs/' + book + '/' + idx.files[e[0]], { range: { offset: e[1], length: e[2] } }); if (o) return o.json(); }
+  const o = await env.R2.get('sections/' + book.replace('-', '/') + '/' + sec + '.json'); return o ? o.json() : null;
+}
+
 // ---- main
 export async function searchText(env, url) {
   const t0 = Date.now(); const P = url.searchParams;
@@ -170,14 +183,13 @@ async function runLayer(env, m, L, lookup, qw, phrase, pref, ranges, whoSet, fro
   const rs = ranges ? ranges.map(([lo, hi]) => [lo * mult, hi * mult]) : [[0, Infinity]];
   const hits = []; const docs = new Map(); let fetched = 0, cand = 0, last = from, moreFlag = false;
   const bits = comm ? Math.log2(m.cm) : 0, whoOk = whoSet.length && comm ? new Set(whoSet) : null;
-  const get = async key => { if (!docs.has(key)) { docs.set(key, env.R2.get(key).then(o => o ? o.json() : null)); fetched++; } return docs.get(key); };
+  const get = async (book, sec) => { const key = book + '\0' + sec; if (!docs.has(key)) { docs.set(key, sectionDoc(env, book, sec)); fetched++; } return docs.get(key); };
   let ri = 0, v = Math.max(from > 0 ? from + 1 : 0, rs[0][0]);
   const verify = async list => {
     const infos = list.map(val => { const gid = comm ? Math.floor(val / mult) : val; const loc = locate(m, gid); return { val, loc, cid: comm ? val % mult : 0 }; });
-    const keys = [...new Set(infos.map(i => { const [c, r] = i.loc.book.split(/-(.*)/s); return `sections/${c}/${r}/${i.loc.sec}.json`; }))];
-    keys.forEach(get); const res = [];
+    [...new Set(infos.map(i => i.loc.book + '\0' + i.loc.sec))].forEach(k => { const [bk, sc] = k.split('\0'); get(bk, sc); }); const res = [];
     for (const i of infos) {
-      const [c, r] = i.loc.book.split(/-(.*)/s); const doc = await get(`sections/${c}/${r}/${i.loc.sec}.json`); if (!doc) continue;
+      const doc = await get(i.loc.book, i.loc.sec); if (!doc) continue;
       if (!comm) { const txt = doc.text.segments[i.loc.idx - 1]; const mt = txt && findMatch(txt, qw, phrase, pref); if (mt) res.push({ val: i.val, work: i.loc.book, sec: i.loc.sec, idx: i.loc.idx, kind: 'base', he: snippet(mt) }); }
       else {
         const w = m.whoById[i.cid]; if (!w) continue;
