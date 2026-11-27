@@ -45,3 +45,5 @@ Chumash: Bereishis from Vayishlach (Gen 32:4) to end + all Shemos. Gemara: Berak
 
 - 2026-11-27: Nightly backup workflow (backup.yml, 02:30 UTC) exports user tables from D1 to R2 `backups/d1-<date>.sql`; first run succeeded.
 - 2026-11-27 (content B): live in R2+catalog: Mishneh Torah 88 books, Shulchan Arukh 4, Tur 4 (no commentaries in export), Sefer HaChinukh, Rif 25, Rosh 27, Midrash Rabbah 7/11, Midrash Halakhah 5 (Mekhilta x2, Sifrei x3), Midrash Aggadah 22. Catalog is rebuilt from all manifests in R2 (`import_more_b.py --rebuild-catalog`). Skipped (unknown licence): Devarim/Bamidbar/Esther/Vayikra Rabbah, Sifra, Kessef Mishneh (see manifests `skipped`).
+
+- 2026-11-27: Content A/B finished (808 books in catalog). Search index covers all 808 books (verified per family). Links pipeline extended to new families (running). Added: nightly backup, rate limits + report button, PWA. Open: Worker CPU on free plan (search) may need paid plan; bookshelf; word-level dh links.
