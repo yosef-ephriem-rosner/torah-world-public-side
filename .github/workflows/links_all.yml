@@ -6,11 +6,10 @@ on:
   workflow_dispatch:
     inputs:
       group:
-        description: 'Which part'
+        description: 'Categories, comma separated: Tanakh,Mishnah,Talmud,Responsa,Chasidut,... or new (all families except Tanakh/Mishnah/Talmud) or all'
         required: true
         default: all
-        type: choice
-        options: [Tanakh, Mishnah, Talmud, all]
+        type: string
       resume:
         description: 'Skip books that already have links in R2'
         required: false
@@ -21,6 +20,12 @@ on:
         required: false
         default: false
         type: boolean
+
+      extra:
+        description: 'Extra links_all.py flags, e.g. --packs-only --skip-linksin  |  --linksin-only'
+        required: false
+        default: ''
+        type: string
 
 permissions:
   contents: read
@@ -44,6 +49,6 @@ jobs:
           if [ -z "$CLOUDFLARE_ACCOUNT_ID" ]; then
             export CLOUDFLARE_ACCOUNT_ID=$(curl -s -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" https://api.cloudflare.com/client/v4/accounts | python3 -c "import json,sys;print(json.load(sys.stdin)['result'][0]['id'])")
           fi
-          ARGS=""; if [ "${{ inputs.resume }}" = "true" ]; then ARGS="--resume"; fi
+          EXTRA="${{ inputs.extra }}"; ARGS=""; if [ "${{ inputs.resume }}" = "true" ]; then ARGS="--resume"; fi
           if [ "${{ inputs.placement_only }}" = "true" ]; then ARGS="$ARGS --placement-only"; fi
-          python3 scripts/links/links_all.py --group "${{ inputs.group }}" $ARGS --cache cache --out out
+          python3 scripts/links/links_all.py --group "${{ inputs.group }}" $ARGS $EXTRA --cache cache --out out

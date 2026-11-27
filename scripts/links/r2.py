@@ -25,3 +25,31 @@ def get_many(keys, cache='cache', workers=8):
     with cf.ThreadPoolExecutor(workers) as ex: return dict(zip(keys, ex.map(lambda k: get(k, cache), keys)))
 def put_many(items, workers=3):
     with cf.ThreadPoolExecutor(min(workers, 3)) as ex: return list(ex.map(lambda kv: put(*kv), items))
+
+def _rest():
+    import sys, urllib.parse
+    sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..'))
+    import upload_r2
+    return upload_r2, f'{upload_r2.API}/accounts/{upload_r2.account()}/r2/buckets/{BUCKET}/objects'
+def rest_list(prefix):
+    import urllib.parse
+    u, base = _rest(); out = []; cursor = None
+    while True:
+        _, body = u.call('GET', f'{base}?prefix={urllib.parse.quote(prefix)}&per_page=1000' + (f'&cursor={cursor}' if cursor else '')); j = json.loads(body)
+        out += [o['key'] for o in j.get('result', [])]; info = j.get('result_info') or {}
+        if not info.get('is_truncated'): return out
+        cursor = info.get('cursor')
+def rest_get(key):
+    import urllib.parse
+    u, base = _rest(); return u.call('GET', base + '/' + urllib.parse.quote(key, safe='/'))[1]
+def get_pack_files(root, kind, book, cache):
+    """read linkpacks/<book>/<kind>.* (or packs/<book>/ for sections when root='packs') into cache as per-section files; returns {sec: path}. {} if no pack"""
+    ix = 'index.json' if root == 'packs' else f'{kind}.index.json'
+    try: idx = json.loads(rest_get(f'{root}/{book}/{ix}'))
+    except Exception: return {}
+    blobs = {}; got = {}
+    for sec, (fi, off, ln) in idx['secs'].items():
+        if fi not in blobs: blobs[fi] = rest_get(f'{root}/{book}/{idx["files"][fi]}')
+        fn = os.path.join(cache, *( ['sections', book.replace('-', '/', 1)] if root == 'packs' else [kind, book] ), sec + '.json')
+        os.makedirs(os.path.dirname(fn), exist_ok=True); open(fn, 'wb').write(blobs[fi][off:off + ln]); got[sec] = fn
+    return got

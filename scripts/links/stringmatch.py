@@ -99,7 +99,7 @@ def context(cache):
     for ref, toks in tanakh_corpus(cache): ti.add(ref, toks)
     gi = Index(6); mi = Index(5)
     for b in BOOKS:
-        if BOOKS[b]['kind'] == 'tanakh': continue
+        if BOOKS[b]['kind'] not in ('talmud', 'mishnah'): continue
         for s, d in load_book(cache, b).items():
             for i, seg in enumerate(d['text']['segments'], 1):
                 toks, _ = seg_tokens(seg)
@@ -122,7 +122,7 @@ def build(book, cache, tanakh_min=3, tanakh_df=6, mishnah_min=6, gem_min=10, gem
             def emit(qs, qe, to, typ, conf, note):
                 out[sec].append({'from': {'idx': i, 'ws': pos[qs], 'we': pos[qe - 1]}, 'to': to, 'type': typ, 'source': 'string-match', 'confidence': conf, 'note': note, 'review': 'unreviewed'})
                 stats[typ + ':' + ('tanakh' if 'sefaria' in to or to.get('work', '').startswith('tanakh') else to['work'])] += 1
-            if kind in ('talmud', 'mishnah'):
+            if kind in ('talmud', 'mishnah', 'other'):
                 best = {}
                 for u, a, e, b2, run in ti.query(toks, tanakh_df, tanakh_min):
                     ref, ut = ti.units[u]

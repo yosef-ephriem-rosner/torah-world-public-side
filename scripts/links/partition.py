@@ -13,7 +13,7 @@ def books_of(cite):
         m = _ON.match(cite)
         if m:
             b = _T2B_get(m[1])
-            if b and m[2] in BOOKS[b]['secset']: return b
+            if b: return b
     return None
 def _T2B_get(title):
     import common; return common._T2B.get(title)
