@@ -258,11 +258,18 @@ def cmd_batch(a):
         except Exception as e: print('FAILED', book, str(e)[:200])
 
 def cmd_fetch_partials(a):
+    from concurrent.futures import ThreadPoolExecutor
     os.makedirs(a.out, exist_ok=True)
     keys = [k for k in r2_list('search/_partial/') if k.endswith('.json.gz')]
-    for k in keys:
-        open(os.path.join(a.out, k.split('/')[-1]), 'wb').write(r2_get(k)); time.sleep(0.3)
-    print(f'{len(keys)} partials downloaded')
+    def one(k):
+        fn = os.path.join(a.out, k.split('/')[-1])
+        if os.path.exists(fn) and os.path.getsize(fn) > 0: return 0          # resumable
+        try: data = r2_get(k)
+        except Exception as e: print('FAILED', k, str(e)[:100], flush=True); return 1
+        open(fn + '.part', 'wb').write(data); os.replace(fn + '.part', fn); return 0
+    with ThreadPoolExecutor(a.threads) as ex: failed = sum(ex.map(one, keys))
+    print(f'{len(keys)} partials, {failed} failed')
+    if failed: sys.exit(1)
 
 def selftest():
     assert words('בְּרֵאשִׁ֖ית בָּרָ֣א <b>אֱלֹהִ֑ים</b> רמב"ם ר״ן וכו\' על־כן') == ['בראשית', 'ברא', 'אלהימ', 'רמבמ', 'רנ', 'וכו', 'על', 'כנ'], words('בְּרֵאשִׁ֖ית בָּרָ֣א <b>אֱלֹהִ֑ים</b> רמב"ם ר״ן וכו\' על־כן')
@@ -276,7 +283,7 @@ def main():
     p = sp.add_parser('partial'); p.add_argument('--sections', required=True); p.add_argument('--book', required=True); p.add_argument('--out', required=True)
     p = sp.add_parser('fetch-r2'); p.add_argument('--book', required=True); p.add_argument('--out', required=True); p.add_argument('--secs', default='')
     p = sp.add_parser('batch'); p.add_argument('--ids', required=True); p.add_argument('--work', default='work'); p.add_argument('--out', required=True)
-    p = sp.add_parser('fetch-partials'); p.add_argument('--out', required=True)
+    p = sp.add_parser('fetch-partials'); p.add_argument('--out', required=True); p.add_argument('--threads', type=int, default=6)
     p = sp.add_parser('merge'); p.add_argument('--partials', required=True); p.add_argument('--out', required=True); p.add_argument('--version', default='')
     sp.add_parser('selftest')
     a = ap.parse_args()
