@@ -16,6 +16,11 @@ on:
         required: false
         default: true
         type: boolean
+      placement_only:
+        description: 'Only validate + placement (no link rebuild), also for Tanakh'
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -40,4 +45,5 @@ jobs:
             export CLOUDFLARE_ACCOUNT_ID=$(curl -s -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" https://api.cloudflare.com/client/v4/accounts | python3 -c "import json,sys;print(json.load(sys.stdin)['result'][0]['id'])")
           fi
           ARGS=""; if [ "${{ inputs.resume }}" = "true" ]; then ARGS="--resume"; fi
+          if [ "${{ inputs.placement_only }}" = "true" ]; then ARGS="$ARGS --placement-only"; fi
           python3 scripts/links/links_all.py --group "${{ inputs.group }}" $ARGS --cache cache --out out
