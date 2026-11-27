@@ -209,7 +209,8 @@ def r2_get(key):
 def cmd_plan(a):
     sys.path.insert(0, os.path.dirname(__file__))
     from import_export import catalog
-    have = set() if a.force else {k.split('/')[-1][:-8] for k in r2_list('search/_partial/') if k.endswith('.json.gz')}
+    only = set(x for x in a.only.split(',') if x)
+    have = set() if a.force else {k.split('/')[-1][:-8] for k in r2_list('search/_partial/') if k.endswith('.json.gz')} - only   # --only rebuilds those books even if a partial exists
     items = [{'kind': 'export', 'title': c['title'], 'id': c['work'].replace('/', '-')} for c in catalog()]
     if a.extra:                                               # books added by other sessions (catalog/*.json in R2)
         core = {i['id'] for i in items}
@@ -218,7 +219,9 @@ def cmd_plan(a):
                 for b in json.loads(r2_get(k)).get('books', []):
                     if b['id'] not in core: items.append({'kind': 'r2', 'title': b['id'], 'id': b['id'], 'secs': b['secs']}); core.add(b['id'])
     items = [i for i in items if i['id'] not in have]
-    if a.only: only = set(a.only.split(',')); items = [i for i in items if i['id'] in only or i['title'] in only]
+    if only: items = [i for i in items if i['id'] in only or i['title'] in only]
+    if a.r2:                                                  # read the books from R2 (what the site serves) instead of re-deriving them from Sefaria
+        for i in items: i['kind'] = 'r2'
     ex = [i for i in items if i['kind'] == 'r2']; items = [i for i in items if i['kind'] != 'r2']
     for k in range(0, len(ex), a.batch):        # GitHub matrices are limited to 256 jobs: several books per job
         ids = [i['id'] for i in ex[k:k + a.batch]]; items.append({'kind': 'r2batch', 'title': f'batch-{k // a.batch}', 'id': f'batch-{k // a.batch}', 'ids': ','.join(ids)})
@@ -279,7 +282,7 @@ def selftest():
 
 def main():
     ap = argparse.ArgumentParser(); sp = ap.add_subparsers(dest='cmd', required=True)
-    p = sp.add_parser('plan'); p.add_argument('--force', action='store_true'); p.add_argument('--extra', action='store_true'); p.add_argument('--only', default=''); p.add_argument('--batch', type=int, default=30)
+    p = sp.add_parser('plan'); p.add_argument('--force', action='store_true'); p.add_argument('--extra', action='store_true'); p.add_argument('--only', default=''); p.add_argument('--batch', type=int, default=30); p.add_argument('--r2', action='store_true')
     p = sp.add_parser('partial'); p.add_argument('--sections', required=True); p.add_argument('--book', required=True); p.add_argument('--out', required=True)
     p = sp.add_parser('fetch-r2'); p.add_argument('--book', required=True); p.add_argument('--out', required=True); p.add_argument('--secs', default='')
     p = sp.add_parser('batch'); p.add_argument('--ids', required=True); p.add_argument('--work', default='work'); p.add_argument('--out', required=True)

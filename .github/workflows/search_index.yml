@@ -33,6 +33,7 @@ jobs:
     outputs:
       items: ${{ steps.p.outputs.items }}
       any: ${{ steps.p.outputs.any }}
+      domerge: ${{ steps.p.outputs.domerge }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -44,6 +45,10 @@ jobs:
         run: |
           args=""; { [ "${{ inputs.force }}" = "true" ] || grep -q force .github/search_run.txt; } && args="$args --force"; { [ "${{ inputs.extra }}" = "true" ] || grep -q extra .github/search_run.txt; } && args="$args --extra"
           [ -n "${{ inputs.only }}" ] && args="$args --only ${{ inputs.only }}"
+          # push trigger: .github/search_run.txt may contain  r2  (build chosen books from R2),  only=id1,id2  (rebuild just these),  nomerge
+          grep -q '\br2\b' .github/search_run.txt && args="$args --r2"
+          only=$(grep -o 'only=[^ ]*' .github/search_run.txt | head -1 | cut -d= -f2); [ -n "$only" ] && args="$args --only $only"
+          if grep -q nomerge .github/search_run.txt; then echo "domerge=false" >> "$GITHUB_OUTPUT"; else echo "domerge=true" >> "$GITHUB_OUTPUT"; fi
           items=$(python3 scripts/build_search_index.py plan $args)
           echo "items=$items" >> "$GITHUB_OUTPUT"
           [ "$items" = "[]" ] && echo "any=false" >> "$GITHUB_OUTPUT" || echo "any=true" >> "$GITHUB_OUTPUT"
@@ -89,7 +94,7 @@ jobs:
 
   merge:
     needs: [plan, partial]
-    if: ${{ !cancelled() && (github.event_name != 'workflow_dispatch' || inputs.merge) && needs.plan.result == 'success' }}
+    if: ${{ !cancelled() && (github.event_name != 'workflow_dispatch' || inputs.merge) && needs.plan.outputs.domerge != 'false' && needs.plan.result == 'success' }}
     runs-on: ubuntu-latest
     timeout-minutes: 340
     steps:
